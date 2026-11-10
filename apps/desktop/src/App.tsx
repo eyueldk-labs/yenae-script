@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Ellipsis, LayoutGrid, List, Plus } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import { Api, connect, isTauri, type Layout, type RunDetail, type RunEvent, type State } from "./api";
 import { defaults, missing } from "./Form";
 import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
 import { Home, attentionOf } from "./Home";
 import { Panel, type Opening } from "./Panel";
-import { Menu } from "./Menu";
-import { MOD, isLive } from "./fmt";
+import { isLive } from "./fmt";
 import { toggleFavourite } from "./layoutOps";
 import { store } from "./store";
 
@@ -22,8 +21,6 @@ export function App() {
   const [dialog, setDialog] = useState<null | "new" | "settings">(null);
   const [editWith, setEditWith] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<"grid" | "list">(() => store.get("view", "grid"));
-  const [menu, setMenu] = useState<null | { x: number; y: number; which: "more" | "needs" }>(null);
   const [announce, setAnnounce] = useState("");
   const [, setTick] = useState(0);
   const search = useRef<HTMLInputElement>(null);
@@ -113,7 +110,6 @@ export function App() {
   }, [api, refresh]);
 
   useEffect(() => store.set("selected", selected), [selected]);
-  useEffect(() => store.set("view", view), [view]);
 
   const script = state?.scripts.find((s) => s.id === selected) ?? null;
   const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs]);
@@ -201,7 +197,6 @@ export function App() {
   }
   if (!state || !api) return <div className="center muted">Loading…</div>;
 
-  const needCount = attention.needs.length;
 
   return (
     <div className={`app ${script ? "has-panel" : ""} ${wide ? "wide" : ""}`}>
@@ -219,7 +214,7 @@ export function App() {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    const first = document.querySelector<HTMLElement>(".home [data-tile]:not(.folder), .home .row-main");
+                    const first = document.querySelector<HTMLElement>(".home [data-tile]:not(.folder)");
                     if (first) {
                       // preventDefault stops this Enter from also landing in the form that gets focus.
                       e.preventDefault();
@@ -229,61 +224,43 @@ export function App() {
                   }
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
-                    document.querySelector<HTMLElement>(".home [data-tile], .home .row-main")?.focus();
+                    document.querySelector<HTMLElement>(".home [data-tile]")?.focus();
                   }
                 }}
               />
-              {!query && (
-                <kbd className="search-key" aria-hidden>
-                  {MOD}+K
-                </kbd>
-              )}
             </div>
             <span className="grow" />
-            {(needCount > 0 || attention.running.length > 0) && (
-              <button
-                className={`pill ${attention.needs.some((n) => n.kind === "failed") ? "needs" : ""}`}
-                aria-haspopup="menu"
-                onClick={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setMenu({ x: r.left, y: r.bottom + 4, which: "needs" });
-                }}
-              >
-                <span className={`dot ${attention.needs.some((n) => n.kind === "failed") ? "failed" : needCount ? "waiting" : "running"}`} aria-hidden />
-                {needCount ? needCount : attention.running.length}
-                <span className="pill-text">{needCount ? ` need${needCount === 1 ? "s" : ""} you` : " running"}</span>
-              </button>
-            )}
             {!online && (
               <span className="offline" role="status" title="Lost the connection to the engine. Reconnecting…">
-                Offline
+                Reconnecting…
               </span>
             )}
-            <div className="seg" role="group" aria-label="View">
-              <button className={`ib ${view === "grid" ? "on" : ""}`} aria-pressed={view === "grid"} title="Icons" onClick={() => setView("grid")}>
-                <LayoutGrid size={16} />
-              </button>
-              <button className={`ib ${view === "list" ? "on" : ""}`} aria-pressed={view === "list"} title="Details" onClick={() => setView("list")}>
-                <List size={16} />
-              </button>
-            </div>
-            <button className="ib" title="New script" onClick={() => setDialog("new")}>
-              <Plus size={18} />
+            <button className="new-btn" onClick={() => setDialog("new")}>
+              <Plus size={16} />
+              New script
             </button>
-            <button
-              className="ib"
-              title="More"
-              aria-haspopup="menu"
-              onClick={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                setMenu({ x: r.right - 180, y: r.bottom + 4, which: "more" });
-              }}
-            >
-              <Ellipsis size={18} />
+            <button className="ib" title="Settings" aria-label="Settings" onClick={() => setDialog("settings")}>
+              <Settings size={18} />
             </button>
           </div>
         )}
         <main className="catalog-body">
+          {!query && attention.needs.length > 0 && (
+            // What needs the user, in sentences, each with the one thing to do about it.
+            <ul className="alerts" aria-label="Needs you">
+              {attention.needs.map((n) => (
+                <li key={n.run} className={`alert ${n.kind}`}>
+                  <span className={`dot ${n.kind}`} aria-hidden />
+                  <span className="grow">
+                    <b>{n.name}</b> {n.kind === "waiting" ? "is waiting for your answer" : `failed ${n.when}`}
+                  </span>
+                  <button className={n.kind === "waiting" ? "primary" : ""} onClick={() => open(n.id, { run: n.run })}>
+                    {n.kind === "waiting" ? "Answer" : "See why"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <Home
             api={api}
             state={state}
@@ -295,7 +272,6 @@ export function App() {
             onRun={quickRun}
             onEditWith={(id) => setEditWith(id)}
             query={query}
-            view={view}
           />
         </main>
       </div>
@@ -314,34 +290,6 @@ export function App() {
           onFavourite={() => saveLayout(toggleFavourite(state.layout, script.id))}
           onWide={() => setWide((w) => !w)}
           onClose={close}
-        />
-      )}
-
-      {menu?.which === "more" && (
-        <Menu
-          x={menu.x}
-          y={menu.y}
-          label="More"
-          onClose={() => setMenu(null)}
-          items={[
-            { label: "New script…", onSelect: () => setDialog("new") },
-            "separator",
-            { label: "Settings", onSelect: () => setDialog("settings") },
-          ]}
-        />
-      )}
-      {menu?.which === "needs" && (
-        <Menu
-          x={menu.x}
-          y={menu.y}
-          label="Needs you"
-          onClose={() => setMenu(null)}
-          items={[
-            ...(attention.needs.length ? [{ heading: "Needs you" } as const] : []),
-            ...attention.needs.map((n) => ({ label: `${n.name}: ${n.text}`, onSelect: () => open(n.id, { run: n.run }) })),
-            ...(attention.running.length ? [{ heading: "Running" } as const] : []),
-            ...attention.running.map((n) => ({ label: n.name, onSelect: () => open(n.id, { run: n.run }) })),
-          ]}
         />
       )}
 

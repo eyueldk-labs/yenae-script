@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Ellipsis, Maximize2, Minimize2, Star, X, ChevronLeft } from "lucide-react";
+import { Ellipsis, Star, X, ChevronLeft } from "lucide-react";
 import type { Api, RunDetail, RunSummary, Script, State } from "./api";
 import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing } from "./Form";
-import { RunOutput } from "./Output";
+import { RunOutput, plainError } from "./Output";
 import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
 import { Menu, type MenuEntry } from "./Menu";
@@ -159,7 +159,7 @@ export function Panel({
     ("events" in r ? r.events.filter((e) => e.t === "err").map((e) => (e as { text: string }).text).join("") : "")
       .trim()
       .split("\n")
-      .find((l) => l.trim()) ?? r.error ?? "";
+      .find((l) => l.trim() && !/^\s+at\s/.test(l)) ?? r.error ?? "";
 
   const fixFailure = (r: RunDetail) => {
     const err = r.events
@@ -176,7 +176,7 @@ export function Panel({
   const menuItems: MenuEntry[] = [
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
     ...(agent ? [{ label: `Edit with ${agentName}…`, onSelect: () => setEditWith({ title: `Edit with ${agentName}`, text: "" }) }] : []),
-    { label: wide ? "Show the catalog" : "Fill the window", onSelect: onWide },
+    { label: wide ? "Show all scripts" : "Wider view", onSelect: onWide },
   ];
 
   // A failed last run that isn't on screen yet gets a one-line summary above the form.
@@ -199,12 +199,10 @@ export function Panel({
           <button className={`ib ${favourite ? "fav" : ""}`} aria-pressed={favourite} title={favourite ? "Remove from favourites" : "Add to favourites"} onClick={onFavourite}>
             <Star size={17} fill={favourite ? "currentColor" : "none"} />
           </button>
-          <button className="ib only-wide-screen" title={wide ? "Show the catalog" : "Fill the window"} onClick={onWide}>
-            {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
           <button
             className="ib"
             title="More"
+            aria-label="More"
             aria-haspopup="menu"
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
@@ -213,7 +211,7 @@ export function Panel({
           >
             <Ellipsis size={18} />
           </button>
-          <button className="ib close-btn" title="Close (Esc)" onClick={onClose}>
+          <button className="ib close-btn" title="Close (Esc)" aria-label="Close" onClick={onClose}>
             <X size={17} />
           </button>
         </div>
@@ -225,7 +223,7 @@ export function Panel({
           [
             ["run", "Run", ""],
             ["history", "History", history.length ? String(history.length) : ""],
-            ["schedule", "Schedule", scheduleOn ? `every ${schedule!.every}` : ""],
+            ["schedule", "Schedule", scheduleOn ? "on" : ""],
           ] as const
         ).map(([id, label, extra]) => (
           <button
@@ -260,7 +258,7 @@ export function Panel({
           <div role="tabpanel" id="panel-run" aria-labelledby="tab-run" className="run-tab">
             {script.error && (
               <div className="callout bad">
-                <b>This script doesn't load.</b>
+                <b>This script can't be opened. It has a mistake in it.</b>
                 <pre className="err-text">{script.error}</pre>
                 {agent && (
                   <button className="link" onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}>
@@ -275,13 +273,13 @@ export function Panel({
                 <span className="row">
                   <span className="dot failed" aria-hidden />
                   <b className="grow">
-                    {lastFailed.source === "schedule" ? "Scheduled run" : "Last run"} failed {fmtAgo(lastFailed.endedAt ?? lastFailed.startedAt)}
+                    {lastFailed.source === "schedule" ? "The last automatic run" : "The last run"} failed {fmtAgo(lastFailed.endedAt ?? lastFailed.startedAt)}
                   </b>
                   <button className="link" onClick={() => setShownRun(lastFailed.id)}>
-                    Show run
+                    See what happened
                   </button>
                 </span>
-                {errLine(lastFailed) && <span className="err-text">{errLine(lastFailed)}</span>}
+                {errLine(lastFailed) && <span className="err-text">{plainError(errLine(lastFailed))}</span>}
               </div>
             )}
 
@@ -317,15 +315,12 @@ export function Panel({
                     />
                   </div>
                 ) : (
-                  !script.error && <p className="muted small">No inputs. It runs as it is.</p>
+                  !script.error && <p className="muted small">Nothing to fill in.</p>
                 )}
                 <div className="actions">
-                  <button ref={runButton} className="primary run-btn" onClick={() => start()} disabled={!!script.error} aria-keyshortcuts="Control+Enter">
+                  <button ref={runButton} className="primary run-btn" onClick={() => start()} disabled={!!script.error} aria-keyshortcuts="Control+Enter" title={`Run (${MOD}+Enter)`}>
                     Run
                   </button>
-                  <span className="kbd-hint muted small" aria-hidden>
-                    {MOD}+Enter
-                  </span>
                 </div>
               </>
             )}
@@ -362,7 +357,7 @@ export function Panel({
                     </span>
                     <span className="grow" />
                     <button className="link" onClick={() => setShownRun(null)}>
-                      Clear
+                      Hide
                     </button>
                   </div>
                 )}

@@ -58,10 +58,26 @@ function Event({ e, answered }: { e: RunEvent; answered: unknown }) {
   switch (e.t) {
     case "out":
       return <pre className="log">{e.text}</pre>;
-    case "err":
-      return <pre className="log err">{e.text}</pre>;
+    case "err": {
+      // The message reads as a sentence; the stack trace is there for whoever wants it.
+      const lines = e.text.replace(/\n$/, "").split("\n");
+      const stack = lines.filter((l) => /^\s+at\s/.test(l));
+      const message = lines.filter((l) => !/^\s+at\s/.test(l)).map(plainError).join("\n");
+      return (
+        <>
+          {message.trim() && <pre className="log err">{message}</pre>}
+          {stack.length > 0 && (
+            <details className="tech">
+              <summary>Technical details</summary>
+              <pre className="log">{stack.join("\n")}</pre>
+            </details>
+          )}
+        </>
+      );
+    }
     case "sys":
-      return <div className="sys">{e.text}</div>;
+      // "(exit 1)" says nothing to most people; failed is already said.
+      return <div className="sys">{e.text.replace(/\s*\(exit -?\d+\)$/, "")}</div>;
     case "show":
       return <Show item={e.item} />;
     case "ask":
@@ -73,6 +89,11 @@ function Event({ e, answered }: { e: RunEvent; answered: unknown }) {
     default:
       return null;
   }
+}
+
+/** "TypeError: ECONNREFUSED: Unable to connect" -> "Unable to connect". */
+export function plainError(line: string) {
+  return line.replace(/^(?:\w*Error|Uncaught \w*Error|error):\s*/, "").replace(/^[A-Z_]{4,}:\s*/, "");
 }
 
 function fmtAnswer(req: AskRequest, v: unknown) {

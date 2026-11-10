@@ -1,6 +1,6 @@
 # Yenae Script
 
-A small desktop app for your own TypeScript scripts. Pick a script, fill in its form, run it, and watch the output. Scripts can ask questions while they run, show tables and markdown, and run on a schedule from the tray. Scripts show as icons you can favourite and group into folders; click one and its form opens beside the catalog. A schedule keeps its own values, and "needs you" in the top bar collects questions waiting for an answer and schedules that failed. Local agents (Claude Code, Codex, …) can write and run scripts through its MCP server.
+A small desktop app for your own TypeScript scripts. Pick a script, fill in its form, run it, and watch the output. Scripts can ask questions while they run, show tables and markdown, and run on a schedule from the tray. Each script is a card that says what it does; star the ones you use most and drag scripts onto each other to make folders. Click one and its form opens beside the list. Anything that needs you, a question waiting for an answer or a schedule that failed, shows at the top in plain words. Local agents (Claude Code, Codex, …) can write and run scripts through its MCP server.
 
 ## How scripts are organised
 

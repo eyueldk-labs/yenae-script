@@ -4,24 +4,25 @@ import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script,
 import { FolderIcon, ScriptIcon } from "./icons";
 import { Menu, type MenuEntry } from "./Menu";
 import { fmtValue, labelOf } from "./Form";
-import { lastLabel, isLive } from "./fmt";
+import { fmtAgo, lastLabel, isLive } from "./fmt";
 import { folderOf, folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, type Target } from "./layoutOps";
 
 type Folder = Extract<LayoutItem, { type: "folder" }>;
 type Badge = { kind: "failed" | "waiting" | "running" | "error"; text: string } | null;
 
-const TILE = 88;
+/** Cards are at least this wide; the grid fits as many columns as it can. */
+const CARD = 220;
 const GAP = 8;
 
 /** What a tile's corner says, most urgent first. */
 export function badgeOf(script: Script, state: State, runs: Record<string, RunDetail>): Badge {
   const live = Object.values(runs).find((r) => r.script === script.id && isLive(r));
-  if (live?.status === "waiting") return { kind: "waiting", text: "Waiting for you" };
-  if (live) return { kind: "running", text: "Running" };
+  if (live?.status === "waiting") return { kind: "waiting", text: "Waiting for your answer" };
+  if (live) return { kind: "running", text: "Running…" };
   const sched = state.schedules.find((s) => s.script === script.id && s.enabled);
   const last = sched?.last ? (runs[sched.last.id] ?? sched.last) : null;
-  if (last?.status === "failed") return { kind: "failed", text: `Scheduled run failed` };
-  if (script.error) return { kind: "error", text: "Doesn't load" };
+  if (last?.status === "failed") return { kind: "failed", text: `Failed ${fmtAgo(last.endedAt ?? last.startedAt)}` };
+  if (script.error) return { kind: "error", text: "Can't be opened" };
   return null;
 }
 
@@ -36,7 +37,6 @@ export function Home({
   onRun,
   onEditWith,
   query,
-  view,
 }: {
   api: Api;
   state: State;
@@ -48,7 +48,6 @@ export function Home({
   onRun: (id: string) => void;
   onEditWith: (id: string) => void;
   query: string;
-  view: "grid" | "list";
 }) {
   const byId = useMemo(() => new Map(state.scripts.map((s) => [s.id, s])), [state.scripts]);
   const [openFolder, setOpenFolder] = useState<string | null>(null);
@@ -191,7 +190,7 @@ export function Home({
     return (
       <button
         key={`${where}:${id}`}
-        className={`tile ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
+        className={`tile card ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
         data-tile
         data-id={id}
         data-where={where}
@@ -245,12 +244,17 @@ export function Home({
           onTileDrop(id, false, inFav, zone(e, inFav));
         }}
       >
-        <span className="tile-icon">
-          <ScriptIcon script={s} />
-          {b && <span className={`badge ${b.kind}`} aria-hidden>{b.kind === "failed" || b.kind === "error" ? "!" : b.kind === "waiting" ? "?" : ""}</span>}
+        <ScriptIcon script={s} size={40} />
+        <span className="card-text">
+          <span className="card-name">{s.name}</span>
+          {b && (
+            <span className={`card-status ${b.kind}`}>
+              <span className={`dot ${b.kind === "error" ? "failed" : b.kind}`} aria-hidden />
+              {b.text}
+            </span>
+          )}
+          <span className={`card-sub ${b ? "one" : ""}`}>{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
         </span>
-        <span className="tile-name">{s.name}</span>
-        {meta && <span className="tile-meta">{meta}</span>}
       </button>
     );
   };
@@ -263,7 +267,7 @@ export function Home({
     return (
       <button
         key={f.id}
-        className={`tile folder ${openFolder === f.id ? "open" : ""} ${d ? `drop-${d}` : ""}`}
+        className={`tile card folder ${openFolder === f.id ? "open" : ""} ${d ? `drop-${d}` : ""}`}
         data-tile
         data-id={f.id}
         draggable
@@ -302,11 +306,20 @@ export function Home({
           onTileDrop(f.id, true, false, zone(e, false));
         }}
       >
-        <span className="tile-icon">
-          <FolderIcon scripts={kids} />
-          {worst && <span className={`badge ${worst.kind}`} aria-hidden>{worst.kind === "waiting" ? "?" : worst.kind === "running" ? "" : "!"}</span>}
+        <FolderIcon scripts={kids} size={40} />
+        <span className="card-text">
+          <span className="card-name">{f.name}</span>
+          {worst ? (
+            <span className={`card-status ${worst.kind}`}>
+              <span className={`dot ${worst.kind === "error" ? "failed" : worst.kind}`} aria-hidden />
+              {worst.kind === "running" ? "Running…" : worst.kind === "waiting" ? "Waiting for your answer" : "Something failed"}
+            </span>
+          ) : (
+            <span className="card-sub one">
+              {kids.length} script{kids.length === 1 ? "" : "s"}
+            </span>
+          )}
         </span>
-        <span className="tile-name">{f.name}</span>
       </button>
     );
   };
@@ -343,13 +356,16 @@ export function Home({
   // Arrow keys move to the nearest tile in that direction, across sections and folders.
   // Columns come from the catalog's own width, which stays put while folders open and close.
   const root = useRef<HTMLDivElement>(null);
-  const [cols, setCols] = useState(6);
+  const [cols, setCols] = useState(3);
+  const [colW, setColW] = useState(CARD);
   useLayoutEffect(() => {
     const el = root.current!;
     const fit = () => {
       const cs = getComputedStyle(el);
       const w = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-      setCols(Math.max(1, Math.floor((w + GAP) / (TILE + GAP))));
+      const n = Math.max(1, Math.floor((w + GAP) / (CARD + GAP)));
+      setCols(n);
+      setColW((w - GAP * (n - 1)) / n);
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -379,9 +395,11 @@ export function Home({
     else if (e.key === "ArrowUp") document.querySelector<HTMLElement>(".search input")?.focus();
   };
 
+  const shownItems = layout.items.filter((i) => i.type === "folder" || !layout.favourites.includes(i.id));
+
   // ---- the open folder's drawer, placed after the row that holds the folder ----
   const drawer = (f: Folder) => (
-    <div className="drawer" key={`drawer:${f.id}`} style={{ ["--x" as any]: `${(layout.items.findIndex((i) => i.id === f.id) % cols) * (TILE + GAP) + TILE / 2 - 7}px` }} {...dropZoneProps(f.id)}>
+    <div className="drawer" key={`drawer:${f.id}`} style={{ ["--x" as any]: `${(shownItems.findIndex((i) => i.id === f.id) % cols) * (colW + GAP) + 26}px` }} {...dropZoneProps(f.id)}>
       <div className="drawer-head">
         {renaming === f.id ? (
           <input
@@ -420,7 +438,9 @@ export function Home({
   );
 
   // Tiles flow in a grid; an open folder splits it after its row so its drawer spans the window.
-  const itemsGrid = (items: LayoutItem[]) => {
+  const itemsGrid = (all: LayoutItem[]) => {
+    // A favourite moves up to Favourites instead of showing twice (inside a folder it stays too).
+    const items = all.filter((i) => i.type === "folder" || !layout.favourites.includes(i.id));
     const openAt = items.findIndex((i) => i.id === openFolder);
     const tile = (it: LayoutItem) => (it.type === "folder" ? folderTile(it) : scriptTile(it.id, "items"));
     if (openAt < 0)
@@ -448,8 +468,7 @@ export function Home({
   // ---- views ----
   const noScripts = state.scripts.length === 0;
   const favs = layout.favourites.filter((id) => byId.has(id));
-  // Favourites work like a dock in both views: a shortcut, while the script stays where it is.
-  const loose = layout.items.filter((i) => i.type === "script").map((i) => i.id);
+  // Favourites are shortcuts: the script also stays in its usual place.
   const hasFolders = layout.items.some((i) => i.type === "folder");
   const preview = peek && byId.get(peek.id);
 
@@ -468,7 +487,7 @@ export function Home({
       {noScripts ? (
         <div className="empty">
           <p>No scripts yet.</p>
-          <p className="muted small">Use + to write one, or ask your agent: it can add scripts through the MCP server.</p>
+          <p className="muted small">Press New script and describe what you want; your coding agent writes it.</p>
         </div>
       ) : words.length ? (
         <section aria-label="Search results">
@@ -477,40 +496,12 @@ export function Home({
           </h2>
           {results.length === 0 ? (
             <p className="muted small">Nothing matches “{query}”.</p>
-          ) : view === "list" ? (
-            <ScriptList ids={results.map((s) => s.id)} {...{ byId, layout, onLayout, selected, onOpen, last, badge, folderName }} />
           ) : (
             <div className="tiles" data-tiles>
               {results.map((s) => scriptTile(s.id, "results", folderName(s.id) ? `in ${folderName(s.id)}` : undefined))}
             </div>
           )}
         </section>
-      ) : view === "list" ? (
-        <>
-          {favs.length > 0 && (
-            <section>
-              <h2 className="sec">
-                <Star size={13} fill="currentColor" className="fav" /> Favourites
-              </h2>
-              <ScriptList ids={favs} {...{ byId, layout, onLayout, selected, onOpen, last, badge, folderName }} />
-            </section>
-          )}
-          {layout.items
-            .filter((i): i is Folder => i.type === "folder")
-            .map((f) => ({ f, ids: f.scripts }))
-            .map(({ f, ids }) => (
-              <section key={f.id}>
-                <h2 className="sec">{f.name}</h2>
-                <ScriptList ids={ids} {...{ byId, layout, onLayout, selected, onOpen, last, badge, folderName }} />
-              </section>
-            ))}
-          {loose.length > 0 && (
-            <section>
-              <h2 className="sec">{favs.length || hasFolders ? "Other scripts" : "Scripts"}</h2>
-              <ScriptList ids={loose} {...{ byId, layout, onLayout, selected, onOpen, last, badge, folderName }} />
-            </section>
-          )}
-        </>
       ) : (
         <>
           <section {...dropZoneProps("fav")}>
@@ -522,14 +513,14 @@ export function Home({
                 {favs.map((id) => scriptTile(id, "fav"))}
               </div>
             ) : (
-              <p className="drop-hint muted small">Star a script, or drag one here.</p>
+              <p className="drop-hint muted small">Star a script to keep it here.</p>
             )}
           </section>
           <section {...dropZoneProps("items")}>
-            <h2 className="sec">All scripts</h2>
+            <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
             {itemsGrid(layout.items)}
             {!hasFolders && state.scripts.length > 1 && (
-              <p className="tip muted small">Drag a script onto another to make a folder. Right-click a script for more.</p>
+              <p className="tip muted small">Tip: drag a script onto another to put them in a folder.</p>
             )}
           </section>
         </>
@@ -570,6 +561,13 @@ function InputChip({ name, spec }: { name: string; spec: ParamSpec }) {
   );
 }
 
+/** "Asks for Folder and Pattern", for a script with no description. */
+function asksFor(s: Script) {
+  const names = Object.entries(s.params).map(([k, p]) => labelOf(k, p));
+  if (!names.length) return "No inputs needed";
+  return `Asks for ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}`;
+}
+
 /** The hover preview: what the script does, what it takes, how it last went. */
 function Peek({ script, rect, last, every, folder }: { script: Script; rect: DOMRect; last: RunSummary | null; every?: string; folder?: string }) {
   const params = Object.entries(script.params);
@@ -597,85 +595,16 @@ function Peek({ script, rect, last, every, folder }: { script: Script; rect: DOM
   );
 }
 
-/** The detailed view: each script with its description, inputs and last result. */
-function ScriptList({
-  ids,
-  byId,
-  layout,
-  onLayout,
-  selected,
-  onOpen,
-  last,
-  badge,
-}: {
-  ids: string[];
-  byId: Map<string, Script>;
-  layout: Layout;
-  onLayout: (l: Layout) => void;
-  selected: string | null;
-  onOpen: (id: string, focus: boolean) => void;
-  last: (id: string) => RunSummary | null;
-  badge: (s: Script) => Badge;
-  folderName: (id: string) => string | undefined;
-}) {
-  return (
-    <ul className="rows">
-      {ids.map((id) => {
-        const s = byId.get(id);
-        if (!s) return null;
-        const b = badge(s);
-        const l = last(id);
-        const fav = layout.favourites.includes(id);
-        const params = Object.entries(s.params);
-        return (
-          <li key={id} className={`row-item ${selected === id ? "sel" : ""}`}>
-            <button className="row-main" onClick={(e) => onOpen(id, e.detail === 0)} aria-current={selected === id ? "true" : undefined}>
-              <span className="tile-icon">
-                <ScriptIcon script={s} size={34} />
-                {b && <span className={`badge ${b.kind}`} aria-hidden>{b.kind === "waiting" ? "?" : b.kind === "running" ? "" : "!"}</span>}
-              </span>
-              <span className="row-text">
-                <span className="row-name">{s.name}</span>
-                {s.description && <span className="row-desc">{s.description}</span>}
-              </span>
-              <span className="chips">
-                {params.length ? params.map(([k, p]) => <InputChip key={k} name={k} spec={p} />) : <span className="muted small">No inputs</span>}
-              </span>
-              <span className="row-state small">
-                {b?.kind === "waiting" ? (
-                  <span className="warn-text">Waiting for you</span>
-                ) : l ? (
-                  <span className={l.status === "failed" ? "bad-text" : ""}>{lastLabel(l)}</span>
-                ) : (
-                  <span className="muted">Never run</span>
-                )}
-              </span>
-            </button>
-            <button
-              className={`ib ${fav ? "fav" : ""}`}
-              aria-pressed={fav}
-              title={fav ? "Remove from favourites" : "Add to favourites"}
-              onClick={() => onLayout(toggleFavourite(layout, id))}
-            >
-              <Star size={15} fill={fav ? "currentColor" : "none"} />
-            </button>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 /** Needs-you list for the top bar: questions waiting, schedules failing, scripts running. */
 export function attentionOf(state: State, runs: Record<string, RunDetail>) {
   const name = (id: string) => state.scripts.find((s) => s.id === id)?.name ?? id;
   const live = Object.values(runs).filter(isLive);
-  const waiting = live.filter((r) => r.status === "waiting").map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: r.pendingAsk?.request.message ?? "Waiting for you", kind: "waiting" as const }));
+  const waiting = live.filter((r) => r.status === "waiting").map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: r.pendingAsk?.request.message ?? "Waiting for you", when: "", kind: "waiting" as const }));
   const failing = state.schedules
     .filter((s) => s.enabled && state.scripts.some((x) => x.id === s.script))
     .map((s) => ({ s, last: s.last ? (runs[s.last.id] ?? s.last) : null }))
     .filter((x) => x.last?.status === "failed")
-    .map((x) => ({ id: x.s.script, run: x.last!.id, name: name(x.s.script), text: `Scheduled run failed · ${lastLabel(x.last!).replace(/^Failed /, "")}`, kind: "failed" as const }));
+    .map((x) => ({ id: x.s.script, run: x.last!.id, name: name(x.s.script), text: "", when: fmtAgo(x.last!.endedAt ?? x.last!.startedAt), kind: "failed" as const }));
   const running = live.filter((r) => r.status === "running").map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: "Running", kind: "running" as const }));
   return { needs: [...waiting, ...failing], running };
 }

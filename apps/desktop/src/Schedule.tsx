@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Api, RunSummary, Schedule, Script } from "./api";
 import { ParamForm, fmtValue, labelOf, missing } from "./Form";
-import { STATUS, fmtAgo, fmtWhen, isLive } from "./fmt";
+import { STATUS, fmtAgo, fmtEvery, fmtWhen, isLive } from "./fmt";
 
 /**
  * A schedule is saved with its own values, separate from the form, so a one-off run
@@ -28,7 +28,7 @@ export function SchedulePanel({
   onMissing: (keys: string[]) => void;
 }) {
   const on = !!schedule?.enabled;
-  const [every, setEvery] = useState(schedule?.every ?? script.schedule?.every ?? "10m");
+  const [every, setEvery] = useState(schedule?.every ?? script.schedule?.every ?? "1h");
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [invalid, setInvalid] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -64,48 +64,115 @@ export function SchedulePanel({
 
   const shownValues = on ? schedule!.params : values;
 
+  // Intervals in words; anything else stays possible under "Other…".
+  const presets: [string, string][] = [
+    ["5m", "5 minutes"], ["10m", "10 minutes"], ["15m", "15 minutes"], ["30m", "30 minutes"], ["1h", "hour"], ["6h", "6 hours"], ["1d", "day"],
+  ];
+  const isPreset = presets.some(([v]) => v === every.trim());
+  const [custom, setCustom] = useState(!isPreset);
+  const pickEvery = (v: string) => {
+    if (v === "custom") return setCustom(true);
+    setCustom(false);
+    setEvery(v);
+    // Already on: a new interval applies at once, no extra Save.
+    if (on) save(true, schedule!.params, v);
+  };
+
+  const valueList = (
+    <dl className="values">
+      {params.map(([k, spec]) => (
+        <div key={k}>
+          <dt>{labelOf(k, spec)}</dt>
+          <dd className={spec.kind === "file" || spec.kind === "folder" ? "mono" : ""}>{fmtValue(spec, shownValues[k])}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+
   return (
     <div className="sched" role="tabpanel" id="panel-schedule" aria-labelledby="tab-schedule">
-      <p className="muted small">
-        {on ? "Runs while Yenae Script is open or in the tray." : "Run this script on a timer while Yenae Script is open or in the tray."}
-      </p>
+      <div className="sched-head">
+        <div className="grow">
+          <div className="sched-title">{on ? `On · every ${fmtEvery(schedule!.every)}` : "Run this script automatically"}</div>
+          <div className="muted small">
+            {on
+              ? last && isLive(last)
+                ? "Running now."
+                : schedule!.nextRun
+                  ? `Next run ${fmtWhen(schedule!.nextRun)}.`
+                  : ""
+              : "It runs while Yenae Script is open or in the tray."}
+          </div>
+        </div>
+        {on ? (
+          <button disabled={busy} onClick={() => save(false, schedule!.params, schedule!.every)}>
+            Turn off
+          </button>
+        ) : (
+          <button className="primary" disabled={busy || !!script.error || !every.trim()} onClick={() => save(true, values)}>
+            Turn on
+          </button>
+        )}
+      </div>
+
+      <div className="field">
+        <label htmlFor="sched-every">How often</label>
+        <div className="row">
+          <select id="sched-every" value={custom ? "custom" : every.trim()} onChange={(e) => pickEvery(e.target.value)}>
+            {presets.map(([v, label]) => (
+              <option key={v} value={v}>
+                Every {label}
+              </option>
+            ))}
+            <option value="custom">Other…</option>
+          </select>
+          {custom && (
+            <form
+              className="row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (on) save(true, schedule!.params);
+              }}
+            >
+              <input className="every" aria-label="Every" value={every} onChange={(e) => setEvery(e.target.value)} placeholder="e.g. 2h" />
+              {on && everyChanged && (
+                <button type="submit" disabled={busy || !every.trim()}>
+                  Save
+                </button>
+              )}
+            </form>
+          )}
+        </div>
+        {custom && <div className="hint">A number and s, m, h or d: 30s, 10m, 2h, 1d.</div>}
+        {!on && <div className="hint">Turning it on runs it once now.</div>}
+      </div>
 
       {script.asks && (
         <p className="note warn" role="note">
-          This script asks questions. A scheduled run waits until you answer, and later runs are skipped until then.
+          This script asks questions, so an automatic run waits until you answer. Runs are skipped while it waits.
         </p>
       )}
 
-      {on && (
-        <dl className="facts">
-          <dt>Next</dt>
-          <dd>{last && isLive(last) ? "After the current run" : schedule!.nextRun ? fmtWhen(schedule!.nextRun) : "–"}</dd>
-          <dt>Last</dt>
-          <dd>
-            {last ? (
-              <span className="row wrap">
-                <span className={`dot ${last.status}`} aria-hidden />
-                <span className={last.status === "failed" ? "bad-text" : last.status === "waiting" ? "warn-text" : ""}>
-                  {isLive(last) ? STATUS[last.status] : `${STATUS[last.status]} ${fmtAgo(last.endedAt ?? last.startedAt)}`}
-                </span>
-                <button className="link" onClick={() => onShowRun(last.id)}>
-                  Show run
-                </button>
-              </span>
-            ) : (
-              "Not run yet"
-            )}
-          </dd>
-        </dl>
+      {on && last && (
+        <div className="row wrap small">
+          <span className="muted">Last run:</span>
+          <span className={`dot ${last.status}`} aria-hidden />
+          <span className={last.status === "failed" ? "bad-text" : last.status === "waiting" ? "warn-text" : ""}>
+            {isLive(last) ? STATUS[last.status] : `${STATUS[last.status]} ${fmtAgo(last.endedAt ?? last.startedAt)}`}
+          </span>
+          <button className="link" onClick={() => onShowRun(last.id)}>
+            See what happened
+          </button>
+        </div>
       )}
 
       {params.length > 0 && (
         <section className="sched-values">
           <div className="row">
-            <h3>{on ? "Runs with" : "Will run with the Run tab's values"}</h3>
+            <h3>{on ? "It uses these values" : "It will use the values from the Run tab"}</h3>
             {on && !editing && (
               <button className="link" onClick={() => setEditing({ ...schedule!.params })}>
-                Edit
+                Change
               </button>
             )}
           </div>
@@ -121,7 +188,7 @@ export function SchedulePanel({
               />
               <div className="row">
                 <button className="primary" disabled={busy} onClick={() => save(true, editing, schedule!.every)}>
-                  Save values
+                  Save
                 </button>
                 <button
                   className="ghost"
@@ -136,69 +203,24 @@ export function SchedulePanel({
               </div>
             </>
           ) : (
-            <dl className="values">
-              {params.map(([k, spec]) => (
-                <div key={k}>
-                  <dt>{labelOf(k, spec)}</dt>
-                  <dd className={spec.kind === "file" || spec.kind === "folder" ? "mono" : ""}>{fmtValue(spec, shownValues[k])}</dd>
-                </div>
-              ))}
-            </dl>
+            valueList
           )}
           {formDiffers && (
             <div className="row wrap">
               <span className="muted small">The Run tab has different values.</span>
               <button className="link" disabled={busy} onClick={() => save(true, values, schedule!.every)}>
-                Use those
+                Use those instead
               </button>
             </div>
           )}
         </section>
       )}
 
-      <form
-        className="sched-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save(true, on ? schedule!.params : values);
-        }}
-      >
-        <div className="field">
-          <label htmlFor="sched-every">Every</label>
-          <div className="row">
-            <input id="sched-every" className="every" list="sched-presets" value={every} onChange={(e) => setEvery(e.target.value)} aria-describedby="sched-every-hint" />
-            <datalist id="sched-presets">
-              {["1m", "5m", "10m", "30m", "1h", "6h", "1d"].map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-            {on && everyChanged && (
-              <button type="submit" disabled={busy || !every.trim()}>
-                Save
-              </button>
-            )}
-          </div>
-          <div className="hint" id="sched-every-hint">
-            For example 30s, 10m, 2h or 1d.{!on && " Starting it runs the script once now."}
-          </div>
+      {err && (
+        <div className="msg bad" role="alert">
+          {err}
         </div>
-        {err && (
-          <div className="msg bad" role="alert">
-            {err}
-          </div>
-        )}
-        <div className="row">
-          {on ? (
-            <button type="button" disabled={busy} onClick={() => save(false, schedule!.params, schedule!.every)}>
-              Turn off
-            </button>
-          ) : (
-            <button type="submit" className="primary" disabled={busy || !!script.error || !every.trim()}>
-              Start schedule
-            </button>
-          )}
-        </div>
-      </form>
+      )}
     </div>
   );
 }

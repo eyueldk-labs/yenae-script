@@ -104,24 +104,27 @@ export function NewScriptDialog({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
+  const [name, setName] = useState("");
+  const [what, setWhat] = useState("");
   const [project, setProject] = useState(state.projects[0]?.id ?? "");
   const [newProject, setNewProject] = useState(state.projects.length === 0 ? "my-scripts" : "");
   const [file, setFile] = useState("");
-  const [what, setWhat] = useState("");
   const [harness, setHarness] = useState(preferredHarness(state.harnesses)?.id ?? "");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const creatingProject = project === "" || state.projects.length === 0;
   const agent = state.harnesses.find((h) => h.id === harness);
+  // The file name follows the name unless the user typed one under "More options".
+  const fileName = file.trim() || name.trim();
 
   const create = async () => {
     setBusy(true);
     setErr(null);
     try {
       let p = project;
-      if (creatingProject) p = (await api.newProject(newProject)).id;
+      if (creatingProject) p = (await api.newProject(newProject || "my-scripts")).id;
       if (agent) store.setHarness(agent.id);
-      const { id } = await api.newScript(p, file, what, agent?.id);
+      const { id } = await api.newScript(p, fileName, what, agent?.id);
       onCreated(id);
     } catch (e: any) {
       setErr(e.message);
@@ -139,46 +142,63 @@ export function NewScriptDialog({
         }}
       >
         <div className="field">
-          <label htmlFor="ns-project">Project</label>
-          <select id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
-            {state.projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id}
-              </option>
-            ))}
-            <option value="">New project…</option>
-          </select>
-          {creatingProject && (
-            <input aria-label="New project name" placeholder="Project name" value={newProject} onChange={(e) => setNewProject(e.target.value)} />
+          <label htmlFor="ns-name">Name</label>
+          <input id="ns-name" placeholder="Back up my notes" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        </div>
+        <div className="field">
+          <label htmlFor="ns-what">What should it do?</label>
+          <textarea
+            id="ns-what"
+            rows={4}
+            placeholder="Copy my Notes folder to the backup drive and keep the last 10 copies."
+            value={what}
+            onChange={(e) => setWhat(e.target.value)}
+          />
+          {agent ? (
+            <div className="hint">{agent.name} writes it for you in a terminal window.</div>
+          ) : (
+            state.harnesses.length === 0 && (
+              <div className="hint">This makes an empty script. Install Claude Code, Codex, Gemini CLI or OpenCode to have one written for you.</div>
+            )
           )}
         </div>
-        <div className="field">
-          <label htmlFor="ns-file">File</label>
-          <input id="ns-file" className="mono" placeholder="backups/nightly.ts" value={file} onChange={(e) => setFile(e.target.value)} autoFocus />
-          <div className="hint">Inside the project's scripts folder. Use / for sub-folders.</div>
-        </div>
-        <div className="field">
-          <label htmlFor="ns-what">
-            What should it do?{!agent && <span className="muted"> (optional)</span>}
-          </label>
-          <textarea id="ns-what" rows={4} value={what} onChange={(e) => setWhat(e.target.value)} />
-        </div>
-        {state.harnesses.length > 0 ? (
-          <div className="field">
-            <label htmlFor="ns-agent">Written by</label>
-            <select id="ns-agent" value={harness} onChange={(e) => setHarness(e.target.value)}>
-              {state.harnesses.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name}
-                </option>
-              ))}
-              <option value="">Me (start from a blank script)</option>
-            </select>
-            {agent && <div className="hint">Opens {agent.name} in a terminal with your description.</div>}
+        <details className="more">
+          <summary>More options</summary>
+          <div className="form">
+            {state.harnesses.length > 0 && (
+              <div className="field">
+                <label htmlFor="ns-agent">Written by</label>
+                <select id="ns-agent" value={harness} onChange={(e) => setHarness(e.target.value)}>
+                  {state.harnesses.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                    </option>
+                  ))}
+                  <option value="">Me (start from an empty script)</option>
+                </select>
+              </div>
+            )}
+            <div className="field">
+              <label htmlFor="ns-project">Project</label>
+              <select id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
+                {state.projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.id}
+                  </option>
+                ))}
+                <option value="">New project…</option>
+              </select>
+              {creatingProject && (
+                <input aria-label="New project name" placeholder="Project name" value={newProject} onChange={(e) => setNewProject(e.target.value)} />
+              )}
+              <div className="hint">A folder in your scripts folder. Scripts in one project share their npm packages.</div>
+            </div>
+            <div className="field">
+              <label htmlFor="ns-file">File</label>
+              <input id="ns-file" className="mono" placeholder={name ? `${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}.ts` : "backups/nightly.ts"} value={file} onChange={(e) => setFile(e.target.value)} />
+            </div>
           </div>
-        ) : (
-          <div className="hint">Install Claude Code, Codex, Gemini CLI or OpenCode to have an agent write scripts for you.</div>
-        )}
+        </details>
         {err && (
           <div className="msg bad" role="alert">
             {err}
@@ -188,8 +208,8 @@ export function NewScriptDialog({
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="primary" disabled={busy || !file.trim() || (!!agent && !what.trim())}>
-            {agent ? `Write with ${agent.name}` : "Create script"}
+          <button type="submit" className="primary" disabled={busy || !fileName || (!!agent && !what.trim())}>
+            {busy ? "Creating…" : agent ? `Write with ${agent.name}` : "Create"}
           </button>
         </div>
       </form>

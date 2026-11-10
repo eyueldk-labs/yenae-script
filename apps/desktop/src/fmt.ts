@@ -3,7 +3,7 @@ import { fmtValue, labelOf } from "./Form";
 
 export const STATUS: Record<RunStatus, string> = {
   running: "Running",
-  waiting: "Waiting for you",
+  waiting: "Waiting for your answer",
   ok: "Done",
   failed: "Failed",
   stopped: "Stopped",
@@ -11,7 +11,7 @@ export const STATUS: Record<RunStatus, string> = {
 
 export const isLive = (r: Pick<RunSummary, "status">) => r.status === "running" || r.status === "waiting";
 
-/** "Ctrl" or "⌘", for shortcut hints. */
+/** "Ctrl" or "⌘", for shortcut hints (shown only in tooltips). */
 export const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 
 export function fmtTime(t: number) {
@@ -56,9 +56,18 @@ export function fmtParams(p: Record<string, unknown>, specs: Record<string, Para
 
 /** A script's last run in a few words: "Failed 2 min ago", "Waiting for you". */
 export function lastLabel(r: RunSummary) {
-  if (r.status === "waiting") return "Waiting for you";
+  if (r.status === "waiting") return "Waiting for your answer";
   if (r.status === "running") return "Running now";
   return `${STATUS[r.status]} ${fmtAgo(r.endedAt ?? r.startedAt)}`;
 }
 
 export const SOURCE: Record<RunSummary["source"], string> = { manual: "", schedule: "scheduled", mcp: "agent" };
+
+/** "10m" -> "10 minutes", "1d" -> "day", for "every …". */
+export function fmtEvery(every: string) {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(s|sec|m|min|h|hr|d|day)?s?\s*$/i.exec(every);
+  if (!m) return every;
+  const n = Number(m[1]);
+  const unit = { s: "second", m: "minute", h: "hour", d: "day" }[(m[2] ?? "m").toLowerCase()[0] as "s" | "m" | "h" | "d"];
+  return n === 1 ? unit : `${n} ${unit}s`;
+}
