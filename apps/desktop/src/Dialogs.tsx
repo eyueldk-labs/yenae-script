@@ -156,7 +156,7 @@ export function NewScriptDialog({
             onChange={(e) => setWhat(e.target.value)}
           />
           {agent ? (
-            <div className="hint">{agent.name} writes it for you in a terminal window.</div>
+            <div className="hint">{agent.name} writes it for you. Its window opens while it works.</div>
           ) : (
             state.harnesses.length === 0 && (
               <div className="hint">This makes an empty script. Install Claude Code, Codex, Gemini CLI or OpenCode to have one written for you.</div>
@@ -175,7 +175,7 @@ export function NewScriptDialog({
                       {h.name}
                     </option>
                   ))}
-                  <option value="">Me (start from an empty script)</option>
+                  <option value="">Nobody (I'll write it myself)</option>
                 </select>
               </div>
             )}
@@ -210,7 +210,7 @@ export function NewScriptDialog({
             Cancel
           </button>
           <button type="submit" className="primary" disabled={busy || !fileName || (!!agent && !what.trim())}>
-            {busy ? "Creating…" : agent ? `Write with ${agent.name}` : "Create"}
+            {busy ? "Creating…" : "Create script"}
           </button>
         </div>
       </form>
@@ -260,13 +260,13 @@ export function EditWithDialog({
             </select>
           </div>
         )}
-        <div className="hint">Opens {agent.name} in a terminal in your scripts folder.</div>
+        <div className="hint">{agent.name} opens in its own window and makes the change.</div>
         <div className="row wrap end">
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
           </button>
           <button className="primary" type="submit" disabled={!what.trim()}>
-            Open {agent.name}
+            Start
           </button>
         </div>
       </form>

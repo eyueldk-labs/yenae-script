@@ -3,7 +3,7 @@ import { File as FileIcon, Folder } from "lucide-react";
 import { isTauri, pickPath } from "./api";
 
 /** "C:\Users\me\Notes" -> "Notes" */
-const lastPart = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
+export const lastPart = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
 /**
  * A file or folder input people pick rather than type: a "Choose folder…" button that
@@ -63,30 +63,28 @@ export function PathField({
     );
   }
 
-  return (
-    <div className={`path-field ${value ? "set" : ""} ${invalid ? "invalid" : ""}`}>
-      <button
-        type="button"
-        id={id}
-        className="path-pick"
-        aria-describedby={describedBy}
-        aria-invalid={invalid || undefined}
-        title={value || undefined}
-        onClick={choose}
-      >
-        <Icon size={17} aria-hidden />
-        {value ? (
-          <span className="path-text">
-            <span className="path-name">{lastPart(value)}</span>
-            <span className="path-full">{value}</span>
-          </span>
-        ) : (
-          <span className="path-text">Choose {noun}…</span>
-        )}
+  return value ? (
+    <div className={`path-box ${invalid ? "invalid" : ""}`} title={value}>
+      <Icon size={18} className="path-icon" aria-hidden />
+      <span className="path-text">
+        <span className="path-name">{lastPart(value)}</span>
+        <span className="path-full">{value}</span>
+      </span>
+      <button type="button" id={id} className="small-btn" aria-describedby={describedBy} aria-label={`Change ${noun}: ${value}`} onClick={choose}>
+        Change
       </button>
-      <button type="button" className="link small" onClick={() => setTyping(true)}>
-        {value ? "Change" : "Type a path"}
+    </div>
+  ) : (
+    <div className={`path-box empty ${invalid ? "invalid" : ""}`}>
+      <button type="button" id={id} className="path-pick" aria-describedby={describedBy} aria-invalid={invalid || undefined} onClick={choose}>
+        <Icon size={18} className="path-icon" aria-hidden />
+        Choose {noun}…
       </button>
+      {isTauri() && (
+        <button type="button" className="link small" onClick={() => setTyping(true)}>
+          Type a path
+        </button>
+      )}
     </div>
   );
 }

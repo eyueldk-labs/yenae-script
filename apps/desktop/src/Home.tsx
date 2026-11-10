@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, FolderPlus, Star } from "lucide-react";
+import { ChevronLeft, FolderOpen, FolderPlus, Pencil, Star } from "lucide-react";
 import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script, State } from "./api";
 import { Glyph, hueOf } from "./icons";
 import { Menu, type MenuEntry } from "./Menu";
@@ -50,13 +50,9 @@ export function Home({
   const [openFolder, setOpenFolder] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; folder?: boolean } | null>(null);
-  const [peek, setPeek] = useState<{ id: string; rect: DOMRect } | null>(null);
-  const peekTimer = useRef<number | undefined>(undefined);
-  const peekFor = useRef<string | null>(null);
   const drag = useRef<{ id: string; folder: boolean; fav: boolean } | null>(null);
   const [drop, setDrop] = useState<{ ref: string; kind: string } | null>(null);
 
-  useEffect(() => () => clearTimeout(peekTimer.current), []);
   // A folder that no longer exists can't stay open.
   useEffect(() => {
     if (openFolder && !layout.items.some((i) => i.id === openFolder)) setOpenFolder(null);
@@ -78,18 +74,6 @@ export function Home({
       return words.every((w) => hay.includes(w));
     });
   }, [query, state.scripts, layout]);
-
-  // ---- hover preview ----
-  const hover = (id: string | null, el?: HTMLElement) => {
-    clearTimeout(peekTimer.current);
-    // No preview while a script is open beside the catalog: the panel already says it all.
-    if (!id || drag.current || selected) return setPeek(null);
-    peekTimer.current = window.setTimeout(() => el!.isConnected && setPeek({ id, rect: el!.getBoundingClientRect() }), 450);
-  };
-  // Keyboard focus shows the same preview, so details aren't mouse-only.
-  const focusPeek = (id: string, el: HTMLElement) => {
-    if (el.matches(":focus-visible")) hover(id, el);
-  };
 
   // ---- drag and drop ----
   // Left or right edge of a tile: drop beside it. Its middle: drop into it (makes or fills a folder).
@@ -198,14 +182,11 @@ export function Home({
         aria-description={s.description}
         aria-current={selected === id ? "true" : undefined}
         onClick={(e) => {
-          hover(null);
           onOpen(id, e.detail === 0);
         }}
-        onFocus={(e) => focusPeek(id, e.currentTarget)}
-        onBlur={() => hover(null)}
+
         onContextMenu={(e) => {
           e.preventDefault();
-          hover(null);
           setMenu({ x: e.clientX, y: e.clientY, id });
         }}
         onKeyDown={(e) => {
@@ -218,18 +199,8 @@ export function Home({
             nudge(id, where, e.key === "ArrowLeft" ? -1 : 1);
           } else tileKeys(e);
         }}
-        onMouseMove={(e) => {
-          if (peek?.id !== id && peekFor.current !== id) {
-            peekFor.current = id;
-            hover(id, e.currentTarget);
-          }
-        }}
-        onMouseLeave={() => {
-          peekFor.current = null;
-          hover(null);
-        }}
+
         onDragStart={(e) => {
-          hover(null);
           drag.current = { id, folder: false, fav: inFav };
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", s.name);
@@ -258,6 +229,7 @@ export function Home({
         <span className="packet-label">
           <span className="card-name">{s.name}</span>
           <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
+          <CardFoot script={s} last={last(id)} />
         </span>
       </button>
     );
@@ -311,11 +283,12 @@ export function Home({
         }}
       >
         <span className="packet-front folder-front">
-          {kids.slice(0, 3).map((k, i) => (
-            <span key={k.id} className={`mini hue-${hueOf(k.id)}`} style={{ ["--i" as any]: i, ["--n" as any]: Math.min(3, kids.length) }}>
-              <Glyph script={k} size={16} />
-            </span>
-          ))}
+          <FolderOpen size={26} strokeWidth={1.8} aria-hidden />
+          <span className="swatches" aria-hidden>
+            {kids.slice(0, 5).map((k) => (
+              <span key={k.id} className={`swatch hue-${hueOf(k.id)}`} />
+            ))}
+          </span>
           {worst && <Sticker badge={worst} />}
         </span>
         <span className="packet-label">
@@ -448,7 +421,6 @@ export function Home({
   // A favourite moves up to Favourites instead of showing twice (inside a folder it stays too).
   const shown = layout.items.filter((i) => i.type === "folder" || !layout.favourites.includes(i.id));
   const openF = layout.items.find((i): i is Folder => i.type === "folder" && i.id === openFolder) ?? null;
-  const preview = peek && byId.get(peek.id);
 
   return (
     <div
@@ -505,15 +477,14 @@ export function Home({
               <div className="folder-title">
                 {renaming === openF.id ? renameBox(openF) : <h2 className="sec">{openF.name}</h2>}
                 {renaming !== openF.id && (
-                  <button className="link" onClick={() => setRenaming(openF.id)}>
-                    Rename
+                  <button className="ib" title="Rename folder" aria-label="Rename folder" onClick={() => setRenaming(openF.id)}>
+                    <Pencil size={16} aria-hidden />
                   </button>
                 )}
               </div>
               <div className="tiles" data-tiles>
                 {openF.scripts.map((id) => scriptTile(id, openF.id))}
               </div>
-              <p className="tip muted small">Drag a script out onto “All scripts” to take it out of the folder.</p>
             </section>
           ) : (
           <>
@@ -541,15 +512,6 @@ export function Home({
         </>
       )}
 
-      {preview && !menu && (
-        <Peek
-          script={preview}
-          rect={peek!.rect}
-          last={last(preview.id)}
-          every={state.schedules.find((s) => s.script === preview.id && s.enabled)?.every}
-          folder={folderName(preview.id)}
-        />
-      )}
       {menu && (
         <Menu
           x={menu.x}
@@ -595,34 +557,21 @@ function asksFor(s: Script) {
   return `Asks for ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}`;
 }
 
-/** The hover preview: what the script does, what it takes, how it last went. */
-function Peek({ script, rect, last, every, folder }: { script: Script; rect: DOMRect; last: RunSummary | null; every?: string; folder?: string }) {
+/** The bottom of a packet: what you fill in (up to three, then "+2") and how it last went. */
+function CardFoot({ script, last }: { script: Script; last: RunSummary | null }) {
   const params = Object.entries(script.params);
-  const box = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ left: rect.left, top: rect.bottom + 6 });
-  useLayoutEffect(() => {
-    const r = box.current!.getBoundingClientRect();
-    let top = rect.bottom + 6;
-    if (top + r.height > innerHeight - 8) top = rect.top - r.height - 6;
-    // Beside the card (right, or left when there's no room), level with its top; below it on narrow screens.
-    const right = rect.right + 10, left = rect.left - r.width - 10;
-    if (right + r.width <= innerWidth - 8) return setPos({ left: right, top: Math.max(8, Math.min(rect.top, innerHeight - r.height - 8)) });
-    if (left >= 8) return setPos({ left, top: Math.max(8, Math.min(rect.top, innerHeight - r.height - 8)) });
-    setPos({ left: Math.max(8, Math.min(rect.left + rect.width / 2 - r.width / 2, innerWidth - r.width - 8)), top: Math.max(8, top) });
-  }, [rect]);
   return (
-    <div ref={box} className="peek" role="tooltip" style={pos}>
-      <div className="peek-name">{script.name}</div>
-      {script.description && <div className="muted small">{script.description}</div>}
-      <div className="chips">
-        {params.length ? params.map(([k, p]) => <InputChip key={k} name={k} spec={p} />) : <span className="muted small">No inputs</span>}
-      </div>
-      <div className="peek-foot small">
-        {last ? <span className={last.status === "failed" ? "bad-text" : last.status === "waiting" ? "warn-text" : ""}>{lastLabel(last)}</span> : <span className="muted">Never run</span>}
-        {every && <span className="muted"> · every {every}</span>}
-        {folder && <span className="muted"> · in {folder}</span>}
-      </div>
-    </div>
+    <span className="card-foot">
+      {params.slice(0, 3).map(([k, p]) => (
+        <InputChip key={k} name={k} spec={p} />
+      ))}
+      {params.length > 3 && <span className="chip more">+{params.length - 3}</span>}
+      {last && !isLive(last) && (
+        <span className={`card-last ${last.status === "failed" ? "bad-text" : ""}`} title={new Date(last.startedAt).toLocaleString()}>
+          {lastLabel(last)}
+        </span>
+      )}
+    </span>
   );
 }
 

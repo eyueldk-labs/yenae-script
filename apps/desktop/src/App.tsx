@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Settings } from "lucide-react";
+import { Plus, Settings, X } from "lucide-react";
 import { Api, connect, isTauri, type Layout, type RunDetail, type RunEvent, type State } from "./api";
 import { defaults, missing } from "./Form";
 import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
@@ -8,6 +8,7 @@ import { Panel, type Opening } from "./Panel";
 import { isLive } from "./fmt";
 import { toggleFavourite } from "./layoutOps";
 import { store } from "./store";
+import { setHueIds } from "./icons";
 
 export function App() {
   const [api, setApi] = useState<Api | null>(null);
@@ -112,6 +113,9 @@ export function App() {
   useEffect(() => store.set("selected", selected), [selected]);
 
   const script = state?.scripts.find((s) => s.id === selected) ?? null;
+  if (state) setHueIds(state.scripts.map((s) => s.id));
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [allAlerts, setAllAlerts] = useState(false);
   const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs]);
 
   // The tray says how many things need you while the window is hidden.
@@ -197,6 +201,8 @@ export function App() {
   }
   if (!state || !api) return <div className="center muted">Loading…</div>;
 
+  const alerts = attention.needs.filter((n) => !dismissed.has(n.run) && n.id !== selected);
+
 
   return (
     <div className={`app ${script ? "has-panel" : ""} ${wide ? "wide" : ""}`}>
@@ -246,10 +252,11 @@ export function App() {
           </div>
         )}
         <main className="catalog-body">
-          {!query && attention.needs.length > 0 && (
-            // What needs the user, in sentences, each with the one thing to do about it.
+          {!query && alerts.length > 0 && (
+            // What needs the user, in sentences, each with the one thing to do about it. An alert
+            // for the script already open is hidden (the panel says it), and any can be dismissed.
             <ul className="alerts" aria-label="Needs you">
-              {attention.needs.map((n) => (
+              {(alerts.length > 2 && !allAlerts ? alerts.slice(0, 1) : alerts).map((n) => (
                 <li key={n.run} className={`alert ${n.kind}`}>
                   <span className={`dot ${n.kind}`} aria-hidden />
                   <span className="grow">
@@ -258,8 +265,17 @@ export function App() {
                   <button className={n.kind === "waiting" ? "primary" : ""} onClick={() => open(n.id, { run: n.run })}>
                     {n.kind === "waiting" ? "Answer" : "See why"}
                   </button>
+                  <button className="ib" aria-label="Dismiss" title="Dismiss" onClick={() => setDismissed((d) => new Set(d).add(n.run))}>
+                    <X size={16} aria-hidden />
+                  </button>
                 </li>
               ))}
+              {alerts.length > 2 && !allAlerts && (
+                <li className="alert more-alerts">
+                  <span className="grow muted">and {alerts.length - 1} more things need you</span>
+                  <button onClick={() => setAllAlerts(true)}>Show all</button>
+                </li>
+              )}
             </ul>
           )}
           <Home

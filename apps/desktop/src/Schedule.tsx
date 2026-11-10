@@ -85,7 +85,7 @@ export function SchedulePanel({
       {params.map(([k, spec]) => (
         <div key={k}>
           <dt>{labelOf(k, spec)}</dt>
-          <dd className={spec.kind === "file" || spec.kind === "folder" ? "mono" : ""}>{fmtValue(spec, shownValues[k])}</dd>
+          <dd title={typeof shownValues[k] === "string" ? String(shownValues[k]) : undefined}>{fmtValue(spec, shownValues[k])}</dd>
         </div>
       ))}
     </dl>

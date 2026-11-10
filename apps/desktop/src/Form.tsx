@@ -1,5 +1,5 @@
 import type { ParamSpec } from "./api";
-import { PathField } from "./PathField";
+import { PathField, lastPart } from "./PathField";
 
 export function labelOf(key: string, spec: ParamSpec) {
   if (spec.label) return spec.label;
@@ -28,6 +28,8 @@ export function fmtValue(spec: ParamSpec | undefined, v: unknown) {
   if (spec?.secret) return "••••";
   if (spec?.kind === "boolean") return v ? "Yes" : "No";
   if (spec?.kind === "select") return spec.options?.find((o) => o.value === v)?.label ?? String(v);
+  // A path reads as its folder or file name; the full path is in the editor and tooltips.
+  if ((spec?.kind === "file" || spec?.kind === "folder") && typeof v === "string") return lastPart(v);
   return typeof v === "string" ? v : JSON.stringify(v);
 }
 

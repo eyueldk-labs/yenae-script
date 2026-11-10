@@ -172,7 +172,6 @@ export function Panel({
 
   const params = Object.entries(script.params);
   const agent = preferredHarness(state.harnesses);
-  const agentName = state.harnesses.length === 1 ? agent?.name : "agent";
   const scheduleOn = !!schedule?.enabled;
   const schedLast = schedule?.last ? (runs[schedule.last.id] ?? schedule.last) : null;
   const errLine = (r: RunSummary | RunDetail) =>
@@ -196,7 +195,7 @@ export function Panel({
   const home = folderOf(layout, script.id);
   const menuItems: MenuEntry[] = [
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
-    ...(agent ? [{ label: `Edit with ${agentName}…`, onSelect: () => setEditWith({ title: `Edit with ${agentName}`, text: "" }) }] : []),
+    ...(agent ? [{ label: "Change this script…", onSelect: () => setEditWith({ title: "Change this script", text: "" }) }] : []),
     { label: wide ? "Show all scripts" : "Wider view", onSelect: onWide },
     "separator",
     { heading: "Move to folder" },
@@ -280,11 +279,9 @@ export function Panel({
             {id === "schedule" && scheduleOn && (
               // On is green; a failing schedule says so in red words, not just a dot.
               schedLast?.status === "failed" ? (
-                <span className="tab-state bad-text">· Failing</span>
+                <span className="dot failed" role="img" aria-label="last automatic run failed" />
               ) : (
-                <span className="tab-state">
-                  <span className="dot ok" aria-hidden /> On
-                </span>
+                <span className="dot ok" role="img" aria-label="on" />
               )
             )}
           </button>
@@ -300,7 +297,7 @@ export function Panel({
                 <pre className="err-text">{script.error}</pre>
                 {agent && (
                   <button className="link" onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}>
-                    Fix with {agentName}
+                    Fix it for me
                   </button>
                 )}
               </div>
@@ -425,7 +422,11 @@ export function Panel({
                             Use these values
                           </button>
                         )}
-                        {run.status === "failed" && agent && <button onClick={() => fixFailure(run)}>Fix with {agentName}</button>}
+                        {run.status === "failed" && agent && (
+                          <button onClick={() => fixFailure(run)} title={`Asks ${agent.name} to find and fix the problem`}>
+                            Fix it for me
+                          </button>
+                        )}
                       </div>
                     )
                   }
@@ -438,31 +439,42 @@ export function Panel({
         {tab === "history" && (
           <div role="tabpanel" id="panel-history" aria-labelledby="tab-history">
             {history.length === 0 && <p className="muted small">No runs yet.</p>}
-            <ul className="hist">
-              {history.map((h) => (
-                <li key={h.id}>
-                  <button
-                    className={`hist-row ${h.id === runId ? "on" : ""}`}
-                    onClick={() => {
-                      setShownRun(h.id);
-                      setTab("run");
-                    }}
-                  >
-                    <span className={`dot ${h.status}`} aria-hidden />
-                    <span className="hist-main">
-                      <span className={h.status === "failed" ? "bad-text" : ""}>{STATUS[h.status]}</span>
-                      <span className="muted">
-                        {" "}
-                        {fmtAgo(h.startedAt)}
-                        {h.endedAt ? ` · ${fmtDur(h.endedAt - h.startedAt)}` : ""}
-                        {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
-                      </span>
-                      {Object.keys(h.params).length > 0 && <span className="hist-params">{fmtParams(h.params, script.params)}</span>}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {groupByDay(history.map((h) => runs[h.id] ?? h)).map(([day, rows]) => (
+              <section key={day} className="hist-day">
+                <h3>{day}</h3>
+                <ul className="hist">
+                  {rows.map((h, i) => {
+                    const shownParams = fmtParams(h.params, script.params);
+                    // Values only when they differ from the run before, so repeats don't pile up.
+                    const older = rows[i + 1] ?? null;
+                    const changed = shownParams && (!older || fmtParams(older.params, script.params) !== shownParams);
+                    return (
+                      <li key={h.id}>
+                        <button
+                          className={`hist-row ${h.id === runId ? "on" : ""}`}
+                          onClick={() => {
+                            setShownRun(h.id);
+                            setTab("run");
+                          }}
+                        >
+                          <span className={`dot ${h.status}`} aria-hidden />
+                          <span className="hist-main">
+                            <span className={h.status === "failed" ? "bad-text" : h.status === "waiting" ? "warn-text" : ""}>{STATUS[h.status]}</span>
+                            <span className="muted">
+                              {" "}
+                              {new Date(h.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              {h.endedAt ? ` · ${fmtDur(h.endedAt - h.startedAt)}` : ""}
+                              {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
+                            </span>
+                            {changed && <span className="hist-params">{shownParams}</span>}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
           </div>
         )}
 
@@ -504,4 +516,18 @@ export function Panel({
       )}
     </aside>
   );
+}
+
+/** Runs grouped under "Today", "Yesterday" or the date, newest first. */
+function groupByDay<T extends { startedAt: number }>(list: T[]): [string, T[]][] {
+  const out: [string, T[]][] = [];
+  const today = new Date().setHours(0, 0, 0, 0);
+  for (const r of list) {
+    const d = new Date(r.startedAt).setHours(0, 0, 0, 0);
+    const label = d === today ? "Today" : d === today - 86_400_000 ? "Yesterday" : new Date(r.startedAt).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+    const last = out[out.length - 1];
+    if (last && last[0] === label) last[1].push(r);
+    else out.push([label, [r]]);
+  }
+  return out;
 }
