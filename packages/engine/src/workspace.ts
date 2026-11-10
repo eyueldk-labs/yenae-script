@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ICONS } from "yenae-script";
 import { insideWorkspace, SDK_SOURCE } from "./paths";
@@ -104,6 +104,79 @@ export function ensureWorkspace(workspace: string, mcp: { url: string; token: st
   };
   writeIfChanged(mcpPath, JSON.stringify(mcpJson, null, 2) + "\n");
 }
+
+/**
+ * A brand-new scripts folder gets one "Examples" project, so the app opens with something
+ * to try. Done once: delete the examples and they stay gone.
+ */
+export function seedExamples(workspace: string) {
+  const marker = join(workspace, ".yenae", "examples-added");
+  if (existsSync(marker)) return;
+  const hasProject = readdirSync(workspace, { withFileTypes: true }).some(
+    (d) => d.isDirectory() && !d.name.startsWith(".") && existsSync(join(workspace, d.name, "package.json")),
+  );
+  if (!hasProject && !existsSync(join(workspace, "examples"))) {
+    createProject(workspace, "examples");
+    for (const [file, body] of Object.entries(EXAMPLES)) writeFileSync(join(workspace, "examples", "scripts", file), body);
+  }
+  mkdirSync(join(workspace, ".yenae"), { recursive: true });
+  writeFileSync(marker, new Date().toISOString() + "\n");
+}
+
+const EXAMPLES: Record<string, string> = {
+  "say-hello.ts": `import { defineScript, text, number, ask, show } from "yenae-script";
+
+// A first script: fill in the form, press Run now, then answer its question.
+export default defineScript({
+  name: "Say hello",
+  description: "Try me: fill in your name, press Run now and answer the question.",
+  icon: "message",
+  params: {
+    name: text().label("Your name").default("friend"),
+    times: number({ min: 1, max: 5 }).label("How many times").default(2),
+  },
+  async run({ name, times }) {
+    for (let i = 1; i <= times; i++) {
+      console.log(\`Hello, \${name}!\`);
+      await Bun.sleep(400);
+    }
+    const colour = await ask.select("Pick a colour", ["Red", "Green", "Blue"]);
+    show.markdown(\`**Nice to meet you, \${name}.** You picked \${colour.toLowerCase()}.\`);
+  },
+});
+`,
+  "biggest-files.ts": `import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { defineScript, folder, show } from "yenae-script";
+
+// Lists the biggest files in a folder, as a table.
+export default defineScript({
+  name: "Biggest files",
+  description: "Shows the 15 biggest files in a folder you choose.",
+  icon: "chart",
+  params: {
+    dir: folder().label("Folder to check"),
+  },
+  async run({ dir }) {
+    const rows = readdirSync(dir)
+      .map((name) => {
+        try {
+          const s = statSync(join(dir, name));
+          return s.isFile() ? { file: name, size: \`\${(s.size / 1024 / 1024).toFixed(1)} MB\`, bytes: s.size } : null;
+        } catch {
+          return null;
+        }
+      })
+      .filter((r) => r !== null)
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, 15)
+      .map(({ file, size }) => ({ file, size }));
+    if (!rows.length) return "No files in that folder.";
+    show.table(rows);
+  },
+});
+`,
+};
 
 export function createProject(workspace: string, name: string): string {
   const slug = slugify(name);

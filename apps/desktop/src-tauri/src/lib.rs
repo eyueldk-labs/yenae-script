@@ -1,30 +1,51 @@
-//! The desktop shell: a window, a tray icon, a global hotkey and autostart.
+//! The desktop shell: a window, a tray icon, a global hotkey, autostart and updates.
 //! All script work happens in the engine, a Bun process started here as a sidecar.
 
-use std::sync::Mutex;
+mod updates;
+
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, RwLock,
+};
+use std::time::{Duration, Instant};
 
 use tauri::{
     menu::{Menu, MenuItem},
     path::BaseDirectory,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, WindowEvent,
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
 };
+use updates::Updates;
 
 /// Toggles the window from anywhere.
 const HOTKEY: &str = "CommandOrControl+Shift+Space";
+
+struct Running {
+    /// Held so the engine's stdin stays open; the engine exits when it closes.
+    child: CommandChild,
+    pid: u32,
+    exited: Arc<AtomicBool>,
+}
 
 #[derive(Default)]
 struct Engine {
     /// `{ port, token, workspace }` once the engine prints YENAE_READY.
     info: Mutex<Option<serde_json::Value>>,
-    /// Held so the engine's stdin stays open; the engine exits when it closes.
-    child: Mutex<Option<CommandChild>>,
+    running: Mutex<Option<Running>>,
+    exited: Mutex<Option<Arc<AtomicBool>>>,
+}
+
+pub(crate) fn engine_info_value(app: &AppHandle) -> Option<serde_json::Value> {
+    app.state::<Engine>().info.lock().unwrap().clone()
+}
+
+pub(crate) fn engine_exited(app: &AppHandle) -> bool {
+    app.state::<Engine>().exited.lock().unwrap().as_ref().map(|e| e.load(Ordering::SeqCst)).unwrap_or(true)
 }
 
 #[tauri::command]
@@ -44,6 +65,35 @@ fn set_attention(app: AppHandle, count: u32) {
         };
         let _ = tray.set_tooltip(Some(tip));
     }
+}
+
+#[tauri::command]
+fn update_status(app: AppHandle) -> updates::Status {
+    app.state::<Updates>().status(&app)
+}
+
+/// "Check for updates" in Settings. Returns whether one is ready.
+#[tauri::command]
+async fn check_updates(app: AppHandle) -> Result<bool, String> {
+    updates::check(&app).await
+}
+
+/// "Restart to update": now, or as soon as nothing is running.
+#[tauri::command]
+async fn apply_update(app: AppHandle) -> Result<(), String> {
+    updates::apply_when_idle(&app).await
+}
+
+/// The interface calls this once it has drawn, so a new version is known to work.
+#[tauri::command]
+fn ui_ready(app: AppHandle) {
+    app.state::<Updates>().mark_ui_ready();
+}
+
+#[tauri::command]
+fn dismiss_whats_new(app: AppHandle) {
+    app.state::<Updates>().dismiss_whats_new();
+    let _ = app.emit("update-status", app.state::<Updates>().status(&app));
 }
 
 fn show_main(app: &AppHandle) {
@@ -66,10 +116,20 @@ fn toggle_main(app: &AppHandle) {
     }
 }
 
-fn start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+/// Starts the engine from the active small update, or the one built into the app.
+pub(crate) fn start_engine(app: &AppHandle) {
+    if let Err(e) = try_start_engine(app) {
+        eprintln!("could not start engine: {e}");
+    }
+}
+
+fn try_start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let data = app.path().app_data_dir()?;
     std::fs::create_dir_all(&data)?;
-    let main_js = app.path().resolve("engine/main.js", BaseDirectory::Resource)?;
+    let main_js = match app.state::<Updates>().engine_dir() {
+        Some(dir) => dir.join("main.js"),
+        None => app.path().resolve("engine/main.js", BaseDirectory::Resource)?,
+    };
     let (mut rx, child) = app
         .shell()
         .sidecar("bun")?
@@ -80,7 +140,11 @@ fn start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             "--exit-with-stdin".into(),
         ])
         .spawn()?;
-    *app.state::<Engine>().child.lock().unwrap() = Some(child);
+    let exited = Arc::new(AtomicBool::new(false));
+    let engine = app.state::<Engine>();
+    *engine.info.lock().unwrap() = None;
+    *engine.exited.lock().unwrap() = Some(exited.clone());
+    *engine.running.lock().unwrap() = Some(Running { pid: child.pid(), child, exited: exited.clone() });
 
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -95,18 +159,36 @@ fn start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 CommandEvent::Stderr(line) => eprintln!("engine: {}", String::from_utf8_lossy(&line).trim_end()),
-                CommandEvent::Terminated(p) => eprintln!("engine exited: {:?}", p.code),
+                CommandEvent::Terminated(p) => {
+                    eprintln!("engine exited: {:?}", p.code);
+                    exited.store(true, Ordering::SeqCst);
+                }
                 _ => {}
             }
         }
+        exited.store(true, Ordering::SeqCst);
     });
     Ok(())
 }
 
-/// Closing the engine's stdin makes it stop running scripts and exit.
-fn stop_engine(app: &AppHandle) {
-    drop(app.state::<Engine>().child.lock().unwrap().take());
-    std::thread::sleep(std::time::Duration::from_millis(400));
+/// Stops the engine and waits for it to go: closing its stdin makes it stop running
+/// scripts and exit; if it hasn't after a few seconds, it is ended.
+pub(crate) fn stop_engine(app: &AppHandle) {
+    let engine = app.state::<Engine>();
+    *engine.info.lock().unwrap() = None;
+    let Some(Running { child, pid, exited }) = engine.running.lock().unwrap().take() else { return };
+    drop(child);
+    let start = Instant::now();
+    while !exited.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(6) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if !exited.load(Ordering::SeqCst) {
+        #[cfg(windows)]
+        let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
+        #[cfg(not(windows))]
+        let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).status();
+        std::thread::sleep(Duration::from_millis(300));
+    }
 }
 
 fn quit(app: &AppHandle) {
@@ -114,33 +196,14 @@ fn quit(app: &AppHandle) {
     app.exit(0);
 }
 
-/// A newer version, if there is one: `{ version, notes }`.
-#[tauri::command]
-async fn check_update(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
-    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
-    Ok(update.map(|u| serde_json::json!({ "version": u.version, "notes": u.body })))
-}
-
-/// Downloads and installs the newest version, then starts it. The engine stops first so the
-/// installer can replace its files (on Windows a running bun.exe would be locked).
-#[tauri::command]
-async fn install_update(app: AppHandle) -> Result<(), String> {
-    let update = app
-        .updater()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("You already have the latest version.")?;
-    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
-    stop_engine(&app);
-    // On Windows this hands over to the installer, which closes the app and reopens it.
-    update.install(bytes).map_err(|e| e.to_string())?;
-    app.restart();
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The interface is served from the active small update when there is one (see updates.rs).
+    let mut context = tauri::generate_context!();
+    let ui_dir = Arc::new(RwLock::new(None));
+    let embedded = context.set_assets(Box::new(updates::NoAssets));
+    context.set_assets(Box::new(updates::UiAssets { embedded, dir: ui_dir.clone() }));
+
     tauri::Builder::default()
         // A second launch focuses the running app instead of starting another engine.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
@@ -161,12 +224,30 @@ pub fn run() {
                 .build(),
         )
         .manage(Engine::default())
-        .invoke_handler(tauri::generate_handler![engine_info, set_attention, check_update, install_update])
-        .setup(|app| {
+        .invoke_handler(tauri::generate_handler![
+            engine_info,
+            set_attention,
+            update_status,
+            check_updates,
+            apply_update,
+            ui_ready,
+            dismiss_whats_new
+        ])
+        .setup(move |app| {
             let handle = app.handle().clone();
-            if let Err(e) = start_engine(&handle) {
-                eprintln!("could not start engine: {e}");
-            }
+
+            // Choose the version to run before anything loads.
+            app.manage(Updates::new(&handle, ui_dir.clone()));
+
+            start_engine(&handle);
+
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("Yenae Script")
+                .inner_size(1040.0, 700.0)
+                .min_inner_size(360.0, 420.0)
+                .visible(false)
+                .center()
+                .build()?;
 
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -192,10 +273,15 @@ pub fn run() {
                 eprintln!("hotkey {HOTKEY} unavailable: {e}");
             }
 
-            // Started at login: stay in the tray so schedules run without a window.
-            if !std::env::args().any(|a| a == "--hidden") {
+            // Started at login: stay in the tray so schedules run without a window. After a
+            // full update, reopen the way the app was before it.
+            let hidden = updates::take_relaunch_hidden(&handle).unwrap_or_else(|| std::env::args().any(|a| a == "--hidden"));
+            if !hidden {
                 show_main(&handle);
             }
+
+            tauri::async_runtime::spawn(updates::watch_startup(handle.clone()));
+            tauri::async_runtime::spawn(updates::run(handle.clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -205,6 +291,6 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running Yenae Script");
 }

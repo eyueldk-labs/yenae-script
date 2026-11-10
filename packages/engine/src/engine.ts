@@ -4,7 +4,7 @@ import { Store, type ScheduleRow } from "./db";
 import { Runs } from "./runs";
 import { Scheduler } from "./scheduler";
 import { scanWorkspace, type Project, type ScriptInfo } from "./scan";
-import { ensureWorkspace, createProject, createScript } from "./workspace";
+import { ensureWorkspace, createProject, createScript, seedExamples } from "./workspace";
 import { detectHarnesses, launchHarness, openInEditor } from "./launch";
 import { insideWorkspace, parseEvery } from "./paths";
 import type { RunSource, RunSummary } from "./db";
@@ -30,6 +30,8 @@ export class Engine {
   constructor(
     private dataDir: string,
     overrides: Partial<Settings>,
+    /** examples: false leaves a new scripts folder empty (tests). */
+    private opts: { examples?: boolean } = {},
   ) {
     mkdirSync(dataDir, { recursive: true });
     this.settings = this.loadSettings(overrides);
@@ -86,6 +88,7 @@ export class Engine {
   private openWorkspace() {
     mkdirSync(this.settings.workspace, { recursive: true });
     ensureWorkspace(this.settings.workspace, { url: this.mcpUrl, token: this.settings.token });
+    if (this.opts.examples !== false) seedExamples(this.settings.workspace);
     this.watcher?.close();
     let debounce: Timer | undefined;
     try {
@@ -162,6 +165,18 @@ export class Engine {
       harnesses: detectHarnesses(),
       platform: process.platform,
     };
+  }
+
+  /**
+   * Whether now is a bad moment to restart the engine (the app asks before applying an
+   * update): a script is running or waiting for an answer, or a schedule is due soon.
+   */
+  busy(withinMs = 5 * 60_000): { busy: boolean; reason?: string } {
+    if (this.runs.live.size) return { busy: true, reason: "a script is running" };
+    const soon = Date.now() + withinMs;
+    const due = this.store.schedules().find((s) => s.enabled && s.nextRun !== null && s.nextRun <= soon);
+    if (due) return { busy: true, reason: "a schedule is about to run" };
+    return { busy: false };
   }
 
   private get layoutKey() {

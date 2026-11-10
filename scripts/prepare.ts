@@ -10,8 +10,9 @@ import { mkdirSync, existsSync, copyFileSync, writeFileSync, chmodSync, rmSync }
 import { join } from "node:path";
 import { unzipSync } from "fflate";
 
-/** Bun version shipped with the app. Change it deliberately, then test on Windows. */
-export const BUN_VERSION = "1.4.4";
+import { BUN_VERSION } from "./bun-version";
+import { shellId } from "./shell-id";
+export { BUN_VERSION };
 
 const root = join(import.meta.dir, "..");
 const tauri = join(root, "apps/desktop/src-tauri");
@@ -31,6 +32,10 @@ if (!build.success) {
 mkdirSync(join(out, "sdk"), { recursive: true });
 copyFileSync(join(root, "packages/sdk/src/index.ts"), join(out, "sdk/index.ts"));
 console.log("engine built");
+
+// The shell's fingerprint, baked into the app so it knows which small updates fit it.
+writeFileSync(join(tauri, "shell-id.txt"), shellId());
+console.log(`shell id ${shellId()}`);
 
 // 2. Bun sidecar
 const ti = process.argv.indexOf("--target");

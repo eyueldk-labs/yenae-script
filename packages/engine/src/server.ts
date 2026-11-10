@@ -71,6 +71,8 @@ export function serve(engine: Engine) {
           case "/api/state":
             await engine.scanning;
             return json(req, engine.state());
+          case "/api/busy":
+            return json(req, engine.busy());
           case "/api/rescan":
             await engine.rescan();
             return json(req, engine.state());

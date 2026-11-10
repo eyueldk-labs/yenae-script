@@ -10,7 +10,7 @@ import { isLive } from "./fmt";
 import { toggleFavourite } from "./layoutOps";
 import { store } from "./store";
 import { setHueIds } from "./icons";
-import { checkUpdate, installUpdate, type Update } from "./updates";
+import { applyUpdate, dismissWhatsNew, noteLines, reportUiReady, useUpdateStatus } from "./updates";
 
 export function App() {
   const [api, setApi] = useState<Api | null>(null);
@@ -118,22 +118,15 @@ export function App() {
   if (state) setHueIds(state.scripts.map((s) => s.id));
   const [allAlerts, setAllAlerts] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  // A newer version of the app: checked shortly after start, then every six hours.
-  const [update, setUpdate] = useState<Update | null>(null);
-  const [updating, setUpdating] = useState<string | null>(null);
+  // Once the engine answered and the window drew, this version is known to work.
   useEffect(() => {
-    const check = () => checkUpdate().then(setUpdate).catch(() => {});
-    const first = setTimeout(check, 8_000);
-    const every = setInterval(check, 6 * 3600_000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(every);
-    };
-  }, []);
-  const doUpdate = () => {
-    setUpdating("Updating… the app restarts by itself.");
-    installUpdate().catch((e) => setUpdating(`Couldn't update: ${e?.message ?? e}`));
-  };
+    if (state) reportUiReady();
+  }, [!!state]);
+  // Updates download by themselves; this only shows what is ready or just happened.
+  const upd = useUpdateStatus();
+  const [laterFor, setLaterFor] = useState<string | null>(null);
+  const [notesOpen, setNotesOpen] = useState(false);
+
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs, tick]);
 
@@ -319,18 +312,56 @@ export function App() {
           </div>
         )}
         <main className="catalog-body" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}>
-          {!query && update && (
-            <div className="update-bar" role="status">
-              <span className="dot ok" aria-hidden />
-              <span className="grow">{updating ?? <>Version {update.version} is ready.</>}</span>
-              {!updating && (
-                <button className="primary small-btn" onClick={doUpdate}>
-                  Update and restart
+          {!query && upd && (upd.applying || upd.error || (upd.ready && laterFor !== upd.ready) || upd.whatsNew) && (
+            <div className={`update-bar ${upd.error ? "bad" : ""} ${notesOpen ? "open" : ""}`} role="status">
+              <span className={`dot ${upd.error ? "failed" : "ok"}`} aria-hidden />
+              <span className="grow">
+                {upd.applying ? (
+                  "Updating…"
+                ) : upd.error ? (
+                  upd.error
+                ) : upd.ready ? (
+                  upd.waiting ? (
+                    <>Version {upd.ready} installs as soon as your running scripts finish.</>
+                  ) : (
+                    <>Version {upd.ready} is ready.</>
+                  )
+                ) : (
+                  <>
+                    <b>Updated to {upd.whatsNew!.version}.</b>
+                    {noteLines(upd.whatsNew!.notes).length > 0 && (
+                      <>
+                        {" "}
+                        <button className="link" aria-expanded={notesOpen} onClick={() => setNotesOpen(!notesOpen)}>
+                          What's new
+                        </button>
+                      </>
+                    )}
+                    {notesOpen && (
+                      <ul className="whats-new">
+                        {noteLines(upd.whatsNew!.notes).map((l, i) => (
+                          <li key={i}>{l}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </span>
+              {upd.ready && !upd.applying && !upd.waiting && !upd.error && (
+                <button className="primary small-btn" onClick={() => applyUpdate().catch(() => {})}>
+                  Restart to update
                 </button>
               )}
-              <button className="ib" aria-label="Later" title="Later" onClick={() => setUpdate(null)}>
-                <X size={16} aria-hidden />
-              </button>
+              {!upd.applying && (
+                <button
+                  className="ib"
+                  aria-label={upd.ready && !upd.error ? "Later" : "Dismiss"}
+                  title={upd.ready && !upd.error ? "Later" : "Dismiss"}
+                  onClick={() => (upd.ready && !upd.error ? setLaterFor(upd.ready) : dismissWhatsNew())}
+                >
+                  <X size={16} aria-hidden />
+                </button>
+              )}
             </div>
           )}
           {!query && alerts.length > 0 && (

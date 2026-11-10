@@ -10,7 +10,7 @@ let engine: Engine;
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "yenae-test-"));
   const ws = join(dir, "ws");
-  engine = new Engine(join(dir, "data"), { workspace: ws, port: 0 });
+  engine = new Engine(join(dir, "data"), { workspace: ws, port: 0 }, { examples: false });
   engine.start();
   await engine.scanning;
   await engine.newProject("p");
@@ -118,3 +118,12 @@ test("the layout is saved, normalized and shown in state", () => {
   expect(st.layout).toEqual(saved);
   expect(st.lastRuns["p/scripts/ask.ts"]?.script).toBe("p/scripts/ask.ts");
 });
+
+test("busy while a run is live", async () => {
+  const run = engine.run("p/scripts/ask.ts", {}, "manual");
+  expect(engine.busy()).toEqual({ busy: true, reason: "a script is running" });
+  for (let i = 0; i < 100 && !engine.runs.live.get(run.id)?.pendingAsk; i++) await Bun.sleep(50);
+  engine.runs.stop(run.id);
+  await engine.runs.whenDone(run.id);
+  expect(engine.busy().reason).not.toBe("a script is running");
+}, 30_000);

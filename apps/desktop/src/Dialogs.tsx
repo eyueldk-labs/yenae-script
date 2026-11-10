@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { isTauri, type Api, type State } from "./api";
 import { PathField } from "./PathField";
-import { appVersion, checkUpdate, installUpdate, type Update } from "./updates";
+import { applyUpdate, checkUpdates, useUpdateStatus } from "./updates";
 
 type Harness = { id: string; name: string };
 
@@ -284,50 +284,50 @@ export function EditWithDialog({
   );
 }
 
-/** "Version 0.1.0 · Check for updates", and an update button when there is one. */
+/** "Version 0.1.0 · Check for updates", and a restart button when one is ready. */
 function VersionRow() {
-  const [version, setVersion] = useState<string | null>(null);
-  const [state, setState] = useState<{ text: string; update?: Update } | null>(null);
-  useEffect(() => {
-    appVersion().then(setVersion).catch(() => {});
-  }, []);
-  if (!version) return null;
+  const upd = useUpdateStatus();
+  const [asked, setAsked] = useState(false);
+  if (!upd) return null;
+  const note = upd.applying
+    ? "Updating…"
+    : upd.ready
+      ? upd.waiting
+        ? `Version ${upd.ready} installs as soon as your running scripts finish.`
+        : `Version ${upd.ready} is ready.`
+      : upd.checking
+        ? "Checking…"
+        : asked
+          ? upd.checkError
+            ? "Couldn't check. Are you online?"
+            : "You have the latest version."
+          : "Updates download by themselves.";
   return (
     <div className="field">
       <label>App</label>
       <div className="row wrap">
-        <span>Version {version}</span>
-        {state?.update ? (
-          <button
-            type="button"
-            className="primary small-btn"
-            onClick={() => {
-              setState({ text: "Updating… the app restarts by itself." });
-              installUpdate().catch((e) => setState({ text: `Couldn't update: ${e?.message ?? e}` }));
-            }}
-          >
-            Update to {state.update.version} and restart
+        <span>Version {upd.version}</span>
+        {upd.ready && !upd.waiting && !upd.applying ? (
+          <button type="button" className="primary small-btn" onClick={() => applyUpdate().catch(() => {})}>
+            Restart to update
           </button>
         ) : (
           <button
             type="button"
             className="small-btn"
+            disabled={upd.checking || upd.applying}
             onClick={() => {
-              setState({ text: "Checking…" });
-              checkUpdate()
-                .then((u) => setState(u ? { text: `Version ${u.version} is ready.`, update: u } : { text: "You have the latest version." }))
-                .catch((e) => setState({ text: `Couldn't check: ${e?.message ?? e}` }));
+              setAsked(true);
+              checkUpdates().catch(() => {});
             }}
           >
             Check for updates
           </button>
         )}
       </div>
-      {state && (
-        <div className="hint" role="status">
-          {state.text}
-        </div>
-      )}
+      <div className="hint" role="status">
+        {note}
+      </div>
     </div>
   );
 }
