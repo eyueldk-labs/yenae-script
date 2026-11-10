@@ -33,9 +33,13 @@ export default defineScript({
   await engine.rescan();
 }, 60_000);
 
-afterAll(() => {
+afterAll(async () => {
   engine.stop();
-  rmSync(dir, { recursive: true, force: true });
+  // Windows keeps files locked for a moment after the runs end; cleanup is best effort.
+  await Bun.sleep(200);
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {}
 });
 
 test("scan finds scripts, folders and params", () => {

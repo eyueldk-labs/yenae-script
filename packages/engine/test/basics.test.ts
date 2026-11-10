@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { coerceParams, defineScript, text, number, boolean, select } from "yenae-script";
+import { resolve } from "node:path";
 import { insideWorkspace, parseEvery } from "../src/paths";
 
 describe("parseEvery", () => {
@@ -17,7 +18,8 @@ describe("parseEvery", () => {
 });
 
 test("insideWorkspace refuses escapes", () => {
-  expect(insideWorkspace("/ws", "a/b.ts")).toBe("/ws/a/b.ts");
+  // resolve() gives the platform's form: /ws/a/b.ts here, D:\\ws\\a\\b.ts on Windows.
+  expect(insideWorkspace("/ws", "a/b.ts")).toBe(resolve("/ws/a/b.ts"));
   expect(() => insideWorkspace("/ws", "../etc/passwd")).toThrow();
 });
 
