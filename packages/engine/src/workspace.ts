@@ -149,6 +149,10 @@ export default defineScript({
 import { join } from "node:path";
 import { defineScript, folder, show } from "yenae-script";
 
+/** 532 -> "532 B", 48213 -> "47.1 KB", 3e9 -> "2.79 GB". */
+const readable = (b: number) =>
+  b < 1024 ? \`\${b} B\` : b < 1024 ** 2 ? \`\${(b / 1024).toFixed(1)} KB\` : b < 1024 ** 3 ? \`\${(b / 1024 ** 2).toFixed(1)} MB\` : \`\${(b / 1024 ** 3).toFixed(2)} GB\`;
+
 // Lists the biggest files in a folder, as a table.
 export default defineScript({
   name: "Biggest files",
@@ -162,7 +166,7 @@ export default defineScript({
       .map((name) => {
         try {
           const s = statSync(join(dir, name));
-          return s.isFile() ? { file: name, size: \`\${(s.size / 1024 / 1024).toFixed(1)} MB\`, bytes: s.size } : null;
+          return s.isFile() ? { file: name, size: readable(s.size), bytes: s.size } : null;
         } catch {
           return null;
         }

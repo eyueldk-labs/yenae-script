@@ -204,6 +204,8 @@ function Field({
       <label htmlFor={fid}>
         {label}
         {spec.optional && <span className="muted"> (optional)</span>}
+        {/* A required value still empty: said before Run is pressed, not only after. */}
+        {!spec.optional && (value === "" || value === undefined || value === null) && !invalid && <span className="need">needed</span>}
       </label>
       {input}
       {hint}

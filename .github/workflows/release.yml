@@ -1,9 +1,11 @@
-# Builds installers and publishes them as a GitHub release, with the signed
-# update files (latest.json) that installed apps check for new versions.
+# Makes a release: installers for Windows and Linux, the small update (engine +
+# interface) that most installed apps take instead, and the files apps check for
+# updates. Everything goes into a draft first and is published at the end, so an app
+# never sees half a release.
 #
-# Runs only when you push a version tag (v0.2.0) or start it by hand from the
-# Actions tab (where you can type the version), so normal pushes use no Actions
-# minutes. Builds Windows and Linux.
+# Runs only when you push a version tag (v0.2.0) or start it by hand from the Actions
+# tab (type the version and, ideally, what's new in plain words), so normal pushes use
+# no Actions minutes.
 #
 # Needs the repository secret TAURI_SIGNING_PRIVATE_KEY (see docs/release.md).
 name: release
@@ -14,15 +16,85 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release, e.g. 0.2.0 (empty: the one in tauri.conf.json)"
+        description: "Version, e.g. 0.2.0 (empty: the one in tauri.conf.json)"
+        required: false
+        default: ""
+      notes:
+        description: "What's new, in plain words; separate lines with |  (empty: commit titles)"
         required: false
         default: ""
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
+  # Picks the version, writes the notes and opens a draft release for the builds to fill.
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release_id: ${{ steps.r.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the signing key is set
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Add the TAURI_SIGNING_PRIVATE_KEY repository secret first (docs/release.md)."
+            exit 1
+          fi
+      - id: v
+        name: Version
+        env:
+          INPUT: ${{ github.event.inputs.version }}
+          REF: ${{ github.ref_name }}
+        run: |
+          v="$INPUT"
+          if [ -z "$v" ] && [[ "$REF" == v* ]]; then v="${REF#v}"; fi
+          if [ -z "$v" ]; then v=$(jq -r .version apps/desktop/src-tauri/tauri.conf.json); fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Version $v"
+      - name: Notes
+        env:
+          NOTES: ${{ github.event.inputs.notes }}
+        run: |
+          if [ -n "$NOTES" ]; then
+            echo "$NOTES" | tr '|' '\n' | sed -e 's/^ *//' -e '/^$/d' -e 's/^[-*] *//' -e 's/^/- /' > notes.md
+          else
+            prev=$(git describe --tags --abbrev=0 2>/dev/null || true)
+            git log --no-merges --format='- %s' ${prev:+$prev..HEAD} | head -12 > notes.md
+          fi
+          cat notes.md
+      - id: r
+        name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          {
+            echo "## What's new"
+            cat notes.md
+            echo
+            echo "## Download"
+            echo "- **Windows:** \`Yenae-Script-Setup.exe\` below. Windows may say it protected your PC (the installer isn't code-signed): choose **More info**, then **Run anyway**."
+            echo "- **Linux:** \`Yenae-Script.AppImage\` (updates itself) or \`yenae-script.deb\`."
+            echo
+            echo "Already installed? The app updates itself."
+          } > body.md
+          gh release create "v$V" --draft --title "Yenae Script $V" --notes-file body.md --target "$GITHUB_SHA"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"v$V\") | .id" | head -1)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
+
   # Tests run on their own, so a failing test on a new platform still leaves an
   # installer to try; the red job says what broke.
   test:
@@ -41,6 +113,7 @@ jobs:
       - run: bun test
 
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -68,28 +141,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev
-      - name: Check the signing key is set
-        shell: bash
-        env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if [ -z "$KEY" ]; then
-            echo "::error::Add the TAURI_SIGNING_PRIVATE_KEY repository secret first (docs/release.md)."
-            exit 1
-          fi
-      # A version typed when starting the run (or taken from a v1.2.3 tag) goes into the app.
       - name: Set the version
         shell: bash
         env:
-          INPUT: ${{ github.event.inputs.version }}
-          REF: ${{ github.ref_name }}
+          V: ${{ needs.prepare.outputs.version }}
         run: |
-          v="$INPUT"
-          if [ -z "$v" ] && [[ "$REF" == v* ]]; then v="${REF#v}"; fi
-          if [ -n "$v" ]; then
-            V="$v" bun -e "const f='apps/desktop/src-tauri/tauri.conf.json';const c=JSON.parse(await Bun.file(f).text());c.version=process.env.V;await Bun.write(f,JSON.stringify(c,null,2)+'\n')"
-          fi
-          grep '"version"' apps/desktop/src-tauri/tauri.conf.json
+          bun -e "const f='apps/desktop/src-tauri/tauri.conf.json';const c=JSON.parse(await Bun.file(f).text());c.version=process.env.V;await Bun.write(f,JSON.stringify(c,null,2)+'\n')"
       - run: bun install --frozen-lockfile
       # Builds the engine and downloads the pinned Bun that the app ships as its sidecar.
       - run: bun scripts/prepare.ts --target ${{ matrix.target }}
@@ -103,14 +160,52 @@ jobs:
           projectPath: apps/desktop
           tauriScript: bun x tauri
           args: --target ${{ matrix.target }}
-          # __VERSION__ is the version in tauri.conf.json, so a manual run makes v0.1.0 too.
-          tagName: v__VERSION__
-          releaseName: Yenae Script v__VERSION__
-          releaseBody: |
-            Windows: download the `.exe` setup below and run it. SmartScreen may warn (the installer isn't code-signed); choose "More info", then "Run anyway".
-            Linux: the `.AppImage` (updates itself) or the `.deb`.
-            Already installed? The app offers this update on its own.
-          # Published at once, so installed apps see it as the latest release.
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ needs.prepare.outputs.release_id }}
           includeUpdaterJson: true
+
+  # The small update, the update feeds, fixed-name downloads, then publish.
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      V: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+      - run: bun install --frozen-lockfile
+      - name: Build the small update
+        run: |
+          bun scripts/prepare.ts --engine-only
+          bun run --cwd apps/desktop build
+          bun scripts/bundle.ts "$V" out
+      - name: Sign it and write bundle.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          zip="out/yenae-bundle-$V.zip"
+          (cd apps/desktop && bun x tauri signer sign "../../$zip")
+          bun scripts/bundle-feed.ts "$V" "$zip" "https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/yenae-bundle-$V.zip" notes.md out/bundle.json
+      - name: Plain-words notes in latest.json (the full update's "What's new")
+        run: |
+          gh release download "v$V" --pattern latest.json --dir out
+          jq --rawfile n notes.md '.notes = ($n | rtrimstr("\n"))' out/latest.json > out/latest.tmp && mv out/latest.tmp out/latest.json
+      - name: Fixed-name downloads, so one link always gets the newest
+        run: |
+          mkdir -p dl
+          gh release download "v$V" --pattern "*_${V}_x64-setup.exe" --pattern "*_${V}_amd64.AppImage" --pattern "*_${V}_amd64.deb" --dir dl
+          cp dl/*_x64-setup.exe out/Yenae-Script-Setup.exe
+          cp dl/*_amd64.AppImage out/Yenae-Script.AppImage
+          cp dl/*_amd64.deb out/yenae-script.deb
+      - name: Upload and publish
+        run: |
+          gh release upload "v$V" out/yenae-bundle-$V.zip out/bundle.json out/latest.json out/Yenae-Script-Setup.exe out/Yenae-Script.AppImage out/yenae-script.deb --clobber
+          gh release edit "v$V" --draft=false --latest

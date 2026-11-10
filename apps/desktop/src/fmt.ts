@@ -74,5 +74,8 @@ export function fmtEvery(every: string) {
 
 /** "10m" -> "10 min", "1h" -> "hour", for tight places like cards. */
 export function fmtEveryShort(every: string) {
-  return fmtEvery(every).replace(/minutes?/, "min").replace(/seconds?/, "sec");
+  const long = fmtEvery(every);
+  // A bare unit means "every 1 …": say it as a word ("hourly"), not just "hour".
+  const one: Record<string, string> = { second: "every sec", minute: "every min", hour: "hourly", day: "daily" };
+  return one[long] ?? long.replace(/minutes?/, "min").replace(/seconds?/, "sec").replace(/hours?/, "h");
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Ellipsis, Star, X } from "lucide-react";
 import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
 import { folderOf, folderWith, moveToFolder } from "./layoutOps";
-import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, startValues } from "./Form";
+import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, splitUnit, startValues } from "./Form";
 import { RunOutput, friendlyError, plainError } from "./Output";
 import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
@@ -226,7 +226,7 @@ export function Panel({
                     <span className="grow" />
                     {!back && (
                       <button className="link" onClick={() => setShownRun(null)}>
-                        Hide
+                        Dismiss
                       </button>
                     )}
                   </div>
@@ -407,7 +407,13 @@ export function Panel({
                   <button ref={runButton} className="primary run-btn" onClick={() => start()} disabled={!!script.error} aria-keyshortcuts="Control+Enter" title={`Run (${MOD}+Enter)`}>
                     Run now
                   </button>
-                  {!run && <span className="muted small">{last ? `Last run: ${lastLabel(last)}` : "Not run yet"}</span>}
+                  {missing(script.params, values).length > 0 ? (
+                    <span className="muted small">
+                      Fill in {missing(script.params, values).map((k) => splitUnit(labelOf(k, script.params[k]!)).name).join(", ")} first
+                    </span>
+                  ) : (
+                    !run && <span className="muted small">{last ? `Last run: ${lastLabel(last)}` : "Not run yet"}</span>
+                  )}
                 </div>
               </>
             )}

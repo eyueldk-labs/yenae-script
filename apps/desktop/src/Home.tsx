@@ -547,14 +547,12 @@ export function Home({
             )}
           </section>
           <section {...dropZoneProps("items")}>
-            <div className="sec-row">
-              <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
-              {state.scripts.length > 1 && newFolderSpot}
-            </div>
-            {/* Folders first, in their own short row, then loose scripts. */}
-            {shown.some((it) => it.type === "folder") && (
+            <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
+            {/* Folders first, as a row of chips ending in "New folder", then loose scripts. */}
+            {(shown.some((it) => it.type === "folder") || state.scripts.length > 1) && (
               <div className="folders" data-tiles>
                 {shown.map((it) => (it.type === "folder" ? folderTile(it) : null))}
+                {state.scripts.length > 1 && newFolderSpot}
               </div>
             )}
             <div className="tiles" data-tiles>
@@ -686,8 +684,9 @@ function CardFoot({ script, values, last, every, badge }: { script: Script; valu
           {status.text}
         </span>
         {every && (
-          <span className="every-tag">
-            <Clock size={12} aria-hidden /> every {fmtEveryShort(every)}
+          <span className="every-tag" title={`Runs every ${fmtEvery(every)}`}>
+            <Clock size={12} aria-hidden />
+            <span className="every-text">{fmtEveryShort(every)}</span>
           </span>
         )}
       </span>

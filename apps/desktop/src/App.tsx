@@ -156,20 +156,40 @@ export function App() {
   const glide = (update: () => void, focusId?: string | null) => {
     const vt = (document as any).startViewTransition as undefined | ((cb: () => void) => unknown);
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (vt && !reduce) {
-      // A transition that gets skipped (another one started) is fine: the update still happens.
-      const t = vt.call(document, () => flushSync(update)) as { ready?: Promise<void>; finished?: Promise<void>; updateCallbackDone?: Promise<void> };
-      for (const p of [t?.ready, t?.finished, t?.updateCallbackDone]) p?.catch(() => {});
-    } else update();
-    if (focusId)
+    // Once the new layout is in place, the chosen card is scrolled back into view.
+    const reveal = () =>
+      focusId &&
       requestAnimationFrame(() =>
         document.querySelector<HTMLElement>(`.home [data-tile][data-id="${CSS.escape(focusId)}"]`)?.scrollIntoView({ block: "nearest" }),
       );
+    if (vt && !reduce) {
+      // A transition that gets skipped (another one started) is fine: the update still happens.
+      const t = vt.call(document, () => flushSync(update)) as { ready?: Promise<void>; finished?: Promise<void>; updateCallbackDone?: Promise<void> };
+      for (const p of [t?.ready, t?.finished]) p?.catch(() => {});
+      (t?.updateCallbackDone ?? Promise.resolve()).then(reveal, reveal);
+    } else {
+      update();
+      reveal();
+    }
   };
+  // Whether the last input was a key press: focus goes back to a card only for keyboard users.
+  const viaKeyboard = useRef(false);
+  const openedByKeyboard = useRef(false);
+  useEffect(() => {
+    const key = () => (viaKeyboard.current = true);
+    const pointer = () => (viaKeyboard.current = false);
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("pointerdown", pointer, true);
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("pointerdown", pointer, true);
+    };
+  }, []);
   // The animated close applies a frame later; a second Escape meanwhile must not close again.
   const closing = useRef(false);
   const open = (id: string, at: Omit<Opening, "key"> = {}) => {
     closing.current = false;
+    openedByKeyboard.current = viaKeyboard.current;
     const change = () => {
       setSelected(id);
       setOpening((o) => ({ ...at, key: o.key + 1 }));
@@ -186,8 +206,9 @@ export function App() {
       closing.current = false;
     }, was);
     setWide(false);
-    // Back to the tile the panel came from.
-    requestAnimationFrame(() => ((was && document.querySelector<HTMLElement>(`[data-tile][data-id="${CSS.escape(was)}"]`)) || search.current)?.focus());
+    // Keyboard users go back to the card the panel came from.
+    if (openedByKeyboard.current)
+      requestAnimationFrame(() => ((was && document.querySelector<HTMLElement>(`[data-tile][data-id="${CSS.escape(was)}"]`)) || search.current)?.focus({ preventScroll: true }));
   };
 
   const saveLayout = (l: Layout) => {

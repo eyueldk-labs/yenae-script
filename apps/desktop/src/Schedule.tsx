@@ -183,7 +183,7 @@ export function SchedulePanel({
                 Edit
               </button>
             )}
-            {!on && <span className="muted small">from the Run tab</span>}
+            {!on && <span className="muted small">(from the Run tab)</span>}
           </div>
           {editing ? (
             <>

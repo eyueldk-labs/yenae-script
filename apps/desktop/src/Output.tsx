@@ -60,10 +60,7 @@ export function RunOutput({
       <div className="output">
         <p className="fail-msg">{message}</p>
         {run.events.map((e, i) => (e.t === "show" ? <Show key={i} item={e.item} /> : null))}
-        <details className="tech">
-          <summary>Technical details</summary>
-          <pre className="log">{details.join("\n")}</pre>
-        </details>
+        <TechDetails lines={details} />
         {footer}
         <div ref={end} />
       </div>
@@ -98,14 +95,35 @@ export function RunOutput({
       {run.events.map((e, i) => (i === endIdx ? null : <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />))}
       {pending && <AskCard key={pending.id} req={pending.request} onAnswer={(v) => onAnswer(pending.id, v)} />}
       {!live && (stack.length > 0 || tech.length > 0 || endLine.length > 0) && (
-        <details className="tech">
-          <summary>Technical details</summary>
-          <pre className="log">{[...endLine, ...tech, ...stack].join("\n")}</pre>
-        </details>
+        <TechDetails lines={[...endLine, ...tech, ...stack]} />
       )}
       {!live && footer}
       <div ref={end} />
     </div>
+  );
+}
+
+/**
+ * The fold with everything only a developer needs. The app's own internals are left out
+ * and paths shortened to file names; "Copy details" copies the full text for a bug report.
+ */
+function TechDetails({ lines }: { lines: string[] }) {
+  const [copied, setCopied] = useState(false);
+  const shown = lines
+    .flatMap((l) => l.split("\n"))
+    .filter((l) => !/[\\/](?:engine[\\/](?:main|runner)\.js|packages[\\/]engine[\\/])|node:internal|native:/.test(l))
+    .map((l) => l.replace(/(?:[A-Za-z]:)?(?:[\\/][^\s\\/():]+)+[\\/]([^\s\\/():]+)/g, "$1"));
+  return (
+    <details className="tech">
+      <summary>Technical details</summary>
+      <pre className="log">{shown.join("\n")}</pre>
+      <button
+        className="link small"
+        onClick={() => navigator.clipboard?.writeText(lines.join("\n")).then(() => setCopied(true))}
+      >
+        {copied ? "Copied" : "Copy details"}
+      </button>
+    </details>
   );
 }
 

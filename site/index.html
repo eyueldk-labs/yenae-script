@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yenae Script</title>
+<meta name="description" content="Run your own little scripts with a click: a form, a Run button, schedules from the tray. For Windows and Linux.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='7' fill='%234352b8'/%3E%3Cpath d='M9.5 7.6v8.8a.6.6 0 0 0 .92.5l6.6-4.4a.6.6 0 0 0 0-1l-6.6-4.4a.6.6 0 0 0-.92.5Z' fill='white'/%3E%3Crect x='5.5' y='7' width='2' height='10' rx='1' fill='white' opacity='.55'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ground: #f5f6f2; --bg: #ffffff; --line: #e2e4dd; --text: #1c1f1b; --muted: #5c6159;
+    --brand: #4352b8; --on-brand: #ffffff; --link: #4352b8; --panel: #eef0ea;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #111311; --bg: #1a1d1a; --line: #2f342e; --text: #e8eae4; --muted: #a2a79e;
+      --brand: #6267e6; --on-brand: #ffffff; --link: #a8b1f7; --panel: #20241f;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--text); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+  .mark { display: inline-flex; align-items: center; gap: 10px; font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none; }
+  .mark svg { width: 28px; height: 28px; }
+  header a.source { color: var(--muted); font-size: 14px; text-decoration: none; }
+  header a.source:hover { color: var(--text); }
+  .hero { text-align: center; padding: 48px 0 36px; }
+  h1 { font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 800; font-size: clamp(34px, 6vw, 58px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 auto 18px; max-width: 17ch; text-wrap: balance; }
+  .lead { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 36ch; margin: 0 auto 30px; text-wrap: balance; }
+  .cta { display: inline-flex; align-items: center; gap: 10px; background: var(--brand); color: var(--on-brand); font-weight: 650; font-size: 17px; padding: 15px 28px; border-radius: 999px; text-decoration: none; box-shadow: 0 2px 6px rgb(0 0 0 / 0.12); transition: transform 140ms, filter 140ms; }
+  .cta:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .cta svg { width: 20px; height: 20px; }
+  .meta { margin-top: 14px; font-size: 14px; color: var(--muted); }
+  .meta a { color: var(--link); }
+  .shot { margin: 28px auto 0; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 24px 60px rgb(0 0 0 / 0.14), 0 2px 6px rgb(0 0 0 / 0.06); background: var(--bg); }
+  .shot img { display: block; width: 100%; height: auto; }
+  .points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; padding: 56px 0 8px; }
+  .point { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .point h2 { font-family: "Bricolage Grotesque", system-ui, sans-serif; font-size: 19px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .point p { margin: 0; color: var(--muted); font-size: 15px; }
+  .note { margin: 32px 0 0; padding: 16px 20px; border-radius: 12px; background: var(--panel); color: var(--muted); font-size: 14.5px; }
+  .note b { color: var(--text); }
+  footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { color: var(--link); }
+  @media (max-width: 760px) {
+    .wrap { padding: 0 16px; }
+    .points { grid-template-columns: 1fr; padding-top: 36px; }
+    .hero { padding-top: 24px; }
+    .cta { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="mark" href="./">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="7" fill="#4352b8"/><path d="M9.5 7.6v8.8a.6.6 0 0 0 .92.5l6.6-4.4a.6.6 0 0 0 0-1l-6.6-4.4a.6.6 0 0 0-.92.5Z" fill="#fff"/><rect x="5.5" y="7" width="2" height="10" rx="1" fill="#fff" opacity=".55"/></svg>
+      Yenae Script
+    </a>
+    <a class="source" href="https://github.com/eyueldk-labs/yenae-script">Source on GitHub</a>
+  </header>
+
+  <section class="hero">
+    <h1>Your own little scripts, one click away</h1>
+    <p class="lead">Pick a script, fill in its form, press Run. Let it run on a schedule, or have AI write a new one for you.</p>
+    <a class="cta" id="download" href="https://github.com/eyueldk-labs/yenae-script/releases/latest/download/Yenae-Script-Setup.exe">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg>
+      Download for Windows
+    </a>
+    <p class="meta"><span id="version">Windows 10 and 11</span> · Linux: <a href="https://github.com/eyueldk-labs/yenae-script/releases/latest/download/Yenae-Script.AppImage">AppImage</a> or <a href="https://github.com/eyueldk-labs/yenae-script/releases/latest/download/yenae-script.deb">.deb</a></p>
+
+    <div class="shot">
+      <picture>
+        <source srcset="app-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="app-light.webp" width="2360" height="1440" alt="Yenae Script: script cards on the left, and a script's last result, a table of the biggest files in a folder, on the right.">
+      </picture>
+    </div>
+  </section>
+
+  <section class="points">
+    <div class="point">
+      <h2>Fill in, press Run</h2>
+      <p>Every script gets a simple form. It can ask you questions while it runs and shows its results as tables.</p>
+    </div>
+    <div class="point">
+      <h2>Runs on its own</h2>
+      <p>Turn on a schedule and it keeps running from the tray. If something needs you, the app says so in plain words.</p>
+    </div>
+    <div class="point">
+      <h2>Always up to date</h2>
+      <p>Updates download quietly and install when nothing is running. If one goes wrong, the app goes back by itself.</p>
+    </div>
+  </section>
+
+  <p class="note"><b>Installing on Windows:</b> Windows may say it protected your PC, because the installer isn't code-signed yet. Choose <b>More info</b>, then <b>Run anyway</b>. To uninstall, go to Settings → Apps → Installed apps.</p>
+
+  <footer>
+    <span>Yenae Script</span>
+    <span><a href="https://github.com/eyueldk-labs/yenae-script/releases">All releases</a></span>
+  </footer>
+</div>
+<script>
+  // The newest version and the installer's size, from GitHub. The links work without it.
+  fetch("https://api.github.com/repos/eyueldk-labs/yenae-script/releases/latest")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => {
+      if (!r) return;
+      const exe = (r.assets || []).find((a) => a.name === "Yenae-Script-Setup.exe");
+      const mb = exe ? ` · ${Math.round(exe.size / 1048576)} MB` : "";
+      document.getElementById("version").textContent = `Version ${r.tag_name.replace(/^v/, "")} for Windows 10 and 11${mb}`;
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>

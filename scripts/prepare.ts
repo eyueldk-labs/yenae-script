@@ -4,7 +4,7 @@
  *   - the SDK source the engine copies into each workspace
  *   - a pinned Bun binary, as the Tauri sidecar binaries/bun-<target triple>
  *
- *   bun scripts/prepare.ts [--target <rust triple>]
+ *   bun scripts/prepare.ts [--target <rust triple>] [--engine-only]
  */
 import { mkdirSync, existsSync, copyFileSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -36,6 +36,9 @@ console.log("engine built");
 // The shell's fingerprint, baked into the app so it knows which small updates fit it.
 writeFileSync(join(tauri, "shell-id.txt"), shellId());
 console.log(`shell id ${shellId()}`);
+
+// The release's small update needs only the engine.
+if (process.argv.includes("--engine-only")) process.exit(0);
 
 // 2. Bun sidecar
 const ti = process.argv.indexOf("--target");

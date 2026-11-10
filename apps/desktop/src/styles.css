@@ -182,7 +182,12 @@ section + section { margin-top: 22px; }
   position: relative; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; background: var(--bg);
   box-shadow: 0 1px 2px rgb(20 24 18 / 0.04); transition: transform 140ms cubic-bezier(.2,.8,.2,1), box-shadow 140ms, border-color 140ms;
 }
-.card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--control-line) 45%, var(--line)); box-shadow: 0 8px 22px rgb(20 24 18 / 0.08), 0 1px 2px rgb(20 24 18 / 0.05); }
+.card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--control-line) 55%, var(--line)); box-shadow: 0 6px 18px rgb(20 24 18 / 0.10), 0 1px 3px rgb(20 24 18 / 0.06); }
+.card:active { transform: translateY(0); }
+@media (prefers-color-scheme: dark) {
+  /* Dark: hover raises the surface, since shadows barely show. */
+  .card:hover { background: color-mix(in srgb, #fff 5%, var(--bg)); border-color: rgb(255 255 255 / 0.18); box-shadow: 0 8px 22px rgb(0 0 0 / 0.35); }
+}
 .card.sel { border-color: color-mix(in srgb, var(--focus) 60%, var(--bg)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent); background: color-mix(in srgb, var(--focus) 4%, var(--bg)); }
 .card:has(.card-main:focus-visible), button.card:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .card-main { flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 14px 14px 12px; border: 0; border-radius: 13px; background: none; text-align: left; white-space: normal; cursor: pointer; min-width: 0; }
@@ -208,9 +213,13 @@ button.card { padding: 0; text-align: left; white-space: normal; cursor: pointer
 .card-name { font-family: var(--display); font-size: 15px; font-weight: 650; letter-spacing: -0.005em; line-height: 1.25; overflow-wrap: break-word; }
 .card-sub { font-size: 13.5px; line-height: 1.4; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* Folders: a strip of chips above the scripts, each with its name, count and first few icons. */
-.folders { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 14px; margin-bottom: 14px; }
-.app.has-panel .folders { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
-button.card.folder { flex-direction: row; align-items: center; gap: 12px; padding: 10px 12px; min-height: 60px; }
+.folders { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+button.card.folder { flex: 0 1 auto; flex-direction: row; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; min-height: 48px; max-width: 100%; border-radius: 12px; }
+button.card.folder .folder-text { flex: 0 1 auto; min-width: 0; }
+button.card.folder .card-name, button.card.folder .card-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.card.folder .tile-icon { width: 34px; height: 34px; border-radius: 9px; }
+button.card.folder .card-name { font-size: 14px; }
+button.card.folder .card-sub { font-size: 12.5px; }
 .folder-note.waiting { color: var(--warn-text); }
 .folder-note.failed, .folder-note.error { color: var(--bad); }
 .folder-note.running { color: var(--run); }
@@ -236,13 +245,14 @@ button.card.folder { flex-direction: row; align-items: center; gap: 12px; paddin
 .folder-title .rename { width: 260px; font-size: 16px; margin: 4px 0 10px; }
 /* "New folder" beside the heading: click it, or drop a script on it. */
 .sec-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.new-folder { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 500; padding: 5px 10px; border: 1.5px dashed transparent; }
+.new-folder { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; color: var(--muted); font-weight: 500; padding: 0 16px; border: 1.5px dashed var(--control-line); border-radius: 12px; background: none; }
 .new-folder:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .new-folder.over { border-color: var(--text); color: var(--text); background: var(--panel); }
 .prefill { margin: -4px 0 0; }
 /* The bottom of a card: inputs as chips, then how it last went (room kept for the corner buttons). */
 /* One line of chips: they shrink before they wrap; "+n more" always shows. */
-.card { container-type: inline-size; }
+/* A script card's own width decides how many chips it shows. */
+.card:not(.folder) { container-type: inline-size; }
 .card-foot { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin-top: 8px; min-width: 0; overflow: hidden; }
 .card-foot > span { min-width: 0; display: flex; }
 .card-foot > span:first-child { flex: 0 1 auto; }
@@ -259,8 +269,9 @@ button.card.folder { flex-direction: row; align-items: center; gap: 12px; paddin
 .card-last { margin-top: auto; padding-top: 10px; display: flex; flex-wrap: nowrap; align-items: center; column-gap: 6px; min-width: 0; font-size: 13px; line-height: 19px; color: var(--muted); white-space: nowrap; }
 .card-status { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .card-last.status-failed .card-status, .card-last.status-waiting .card-status { color: var(--text); font-weight: 500; }
-.card-last .every-tag { min-width: 0; display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; }
+.card-last .every-tag { min-width: 0; display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
 .card-last .every-tag svg { flex: none; }
+.every-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .card-vals { display: none; }
 /* A run that just finished: its line glows briefly. */
@@ -335,8 +346,9 @@ details.more[open] > summary { margin-bottom: 12px; }
 .count.on { background: color-mix(in srgb, var(--ok) 14%, var(--bg)); color: var(--ok); }
 .count { font-size: 11.5px; font-weight: 600; line-height: 18px; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--panel); color: var(--muted); text-align: center; }
 .back-btn { display: none; color: var(--accent); padding-left: 0; margin: -4px 0 6px; }
-.panel .tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); }
-.tabs > button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 7px 8px; color: var(--muted); }
+/* Tab labels and their underline line up with the content below. */
+.panel .tabs { display: flex; gap: 20px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+.tabs > button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 9px 0; color: var(--muted); }
 .tab-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
 .tabs > button.on { color: var(--text); border-bottom-color: var(--brand); font-weight: 600; }
 .tabs > button:hover:not(:disabled) { color: var(--text); background: none; }
@@ -401,7 +413,7 @@ button.stop:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 8%,
   .home { padding: 2px 16px 24px; }
   .panel-head { padding: 14px 16px 12px; }
   .panel-body { padding: 14px 16px 22px; }
-  .panel .tabs { padding: 0 10px; }
+  .panel .tabs { padding: 0 16px; }
   .hist { margin: 0; }
   .kbd-hint, .wordmark-text { display: none; }
   .wordmark { margin-right: 0; }
@@ -453,6 +465,7 @@ button.stop:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 8%,
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }
 .field > label { font-weight: 500; }
+.need { margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--warn-text); background: var(--warn-bg); padding: 1px 7px; border-radius: 999px; vertical-align: 1px; }
 .hint { color: var(--muted); font-size: 12.5px; }
 .hint.bad { color: var(--bad); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -468,7 +481,8 @@ button.stop:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 8%,
 .log { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* What a script printed sits in a quiet box; the technical fold keeps lines whole and scrolls. */
 .output > pre.log:not(.err) { background: var(--code); padding: 8px 10px; border-radius: var(--radius); }
-details.tech > pre.log { white-space: pre; overflow-wrap: normal; overflow-x: auto; background: var(--code); padding: 8px 10px; border-radius: var(--radius); }
+details.tech > pre.log { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); padding: 8px 10px; border-radius: var(--radius); }
+details.tech > button.link { margin-top: 6px; }
 .log.err { color: var(--bad); font-family: inherit; font-size: 14px; font-weight: 500; line-height: 1.45; }
 .sys { color: var(--muted); font-size: 12.5px; }
 .after-run { margin-top: 4px; }
