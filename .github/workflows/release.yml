@@ -1,0 +1,83 @@
+# Builds installers and attaches them to a draft GitHub release.
+#
+# Runs only when you push a version tag (v0.1.0) or start it by hand from the
+# Actions tab, so normal pushes use no Actions minutes. Windows is built by
+# default; pick "all" to also build macOS and Linux (macOS minutes cost 10x on
+# private repositories).
+#
+# Release: set "version" in apps/desktop/src-tauri/tauri.conf.json, commit, then
+#   git tag v0.1.0 && git push origin v0.1.0
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which installers to build
+        type: choice
+        options: [windows, all]
+        default: windows
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Tests run on their own, so a failing test on a new platform still leaves an
+  # installer to try; the red job says what broke.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event.inputs.platforms == 'all' && '[{"os":"windows-latest","target":"x86_64-pc-windows-msvc"},{"os":"macos-latest","target":"aarch64-apple-darwin"},{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"}]' || '[{"os":"windows-latest","target":"x86_64-pc-windows-msvc"}]') }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev
+      - run: bun install --frozen-lockfile
+      # Builds the engine and downloads the pinned Bun that the app ships as its sidecar.
+      - run: bun scripts/prepare.ts --target ${{ matrix.target }}
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: bun x tauri
+          args: --target ${{ matrix.target }}
+          # __VERSION__ is the version in tauri.conf.json, so a manual run makes v0.1.0 too.
+          tagName: v__VERSION__
+          releaseName: Yenae Script v__VERSION__
+          releaseBody: Unsigned build. On Windows, SmartScreen may warn; choose "More info", then "Run anyway".
+          releaseDraft: true
+          prerelease: false
