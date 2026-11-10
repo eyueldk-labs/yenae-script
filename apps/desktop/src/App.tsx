@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Api, connect, isTauri, type RunDetail, type RunSummary, type Schedule, type Script, type State } from "./api";
-import { ParamForm, defaults, missing } from "./Form";
+import { ParamForm, defaults, fieldId, labelOf, missing } from "./Form";
 import { RunOutput } from "./Output";
-import { EditWithDialog, NewScriptDialog, SettingsDialog } from "./Dialogs";
+import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen, preferredHarness } from "./Dialogs";
+import { Board, lastLabel, type Open } from "./Board";
+import { SchedulePanel } from "./Schedule";
+import { MOD, SOURCE, STATUS, fmtDur, fmtParams, fmtTime, isLive } from "./fmt";
 
 const store = {
   get<T>(k: string, fallback: T): T {
@@ -20,6 +23,11 @@ const store = {
   },
 };
 
+/** "activity" is the board; anything else is a script id. */
+const ACTIVITY = ":activity";
+type Tab = "output" | "history" | "schedule";
+type Opening = { run?: string; tab?: Tab; focus?: boolean };
+
 export function App() {
   const [api, setApi] = useState<Api | null>(null);
   const [state, setState] = useState<State | null>(null);
@@ -27,8 +35,10 @@ export function App() {
   const [online, setOnline] = useState(false);
   const [runs, setRuns] = useState<Record<string, RunDetail>>({});
   const [selected, setSelected] = useState<string | null>(() => store.get("selected", null));
+  const [opening, setOpening] = useState<Opening>({});
   const [dialog, setDialog] = useState<null | "new" | "settings">(null);
   const [query, setQuery] = useState("");
+  const [announce, setAnnounce] = useState("");
   const search = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -59,9 +69,15 @@ export function App() {
     return api.listen(
       (m) => {
         if (m.type === "state") refresh();
-        else if (m.type === "run")
-          setRuns((prev) => ({ ...prev, [m.run.id]: { ...(prev[m.run.id] ?? { events: [] }), ...m.run } as RunDetail }));
-        else if (m.type === "event")
+        else if (m.type === "run") {
+          setRuns((prev) => {
+            const before = prev[m.run.id];
+            // A new or finished run changes schedules and recent runs: fetch them again.
+            if (!before || (isLive(before) && !isLive(m.run))) queueMicrotask(refresh);
+            return { ...prev, [m.run.id]: { ...(before ?? { events: [] }), ...m.run } as RunDetail };
+          });
+          if (m.run.status === "waiting" && m.run.pendingAsk) setAnnounce(`Waiting for you: ${m.run.pendingAsk.request.message}`);
+        } else if (m.type === "event")
           setRuns((prev) => {
             const r = prev[m.runId];
             if (!r) return prev;
@@ -81,24 +97,34 @@ export function App() {
     );
   }, [api, refresh]);
 
-  useEffect(() => store.set("selected", selected), [selected]);
+  useEffect(() => store.set("selected", selected === ACTIVITY ? null : selected), [selected]);
+
+  const open: Open = (script, at = {}) => {
+    setOpening({ ...at, focus: false });
+    setSelected(script);
+  };
+  const pick = (id: string, focus: boolean) => {
+    setOpening({ focus });
+    setSelected(id);
+  };
 
   // Ctrl/Cmd+K or "/" focuses search, Escape goes back to the list.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (modalOpen()) return;
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement).tagName);
       if ((e.key === "k" && (e.ctrlKey || e.metaKey)) || (e.key === "/" && !typing)) {
         e.preventDefault();
         search.current?.focus();
         search.current?.select();
-      } else if (e.key === "Escape" && !dialog) {
+      } else if (e.key === "Escape") {
         if (typing) (e.target as HTMLElement).blur();
         else setSelected(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dialog]);
+  }, []);
 
   const scripts = state?.scripts ?? [];
   const filtered = useMemo(() => {
@@ -109,51 +135,85 @@ export function App() {
   const script = scripts.find((s) => s.id === selected) ?? null;
   const liveByScript = useMemo(() => {
     const m = new Map<string, RunDetail>();
-    for (const r of Object.values(runs)) if (r.status === "running" || r.status === "waiting") m.set(r.script, r);
+    for (const r of Object.values(runs)) if (isLive(r)) m.set(r.script, r);
     return m;
   }, [runs]);
 
   if (error && !state) {
     return (
       <div className="center">
-        <p>Can't reach the engine: {error}</p>
-        {!isTauri() && <p className="muted">Open with ?token=… from the engine's data folder.</p>}
-        <button onClick={() => location.reload()}>Retry</button>
+        <p>{error}</p>
+        {!isTauri() && <p className="muted">In a browser, open this page with ?token=… from the engine's data folder.</p>}
+        <button onClick={() => location.reload()}>Try again</button>
       </div>
     );
   }
   if (!state || !api) return <div className="center muted">Loading…</div>;
 
+  // Needs-you count for the Activity entry: questions waiting and schedules whose last run failed.
+  const attention =
+    [...liveByScript.values()].filter((r) => r.status === "waiting").length +
+    state.schedules.filter((s) => s.enabled && (runs[s.last?.id ?? ""] ?? s.last)?.status === "failed").length;
+  const showBoard = !script;
+
   return (
-    <div className={`app ${script ? "has-selection" : ""}`}>
+    <div className={`app ${selected ? "has-selection" : ""}`}>
       <aside className="sidebar">
         <div className="search">
           <input
             ref={search}
             autoFocus
-            placeholder="Search scripts"
+            type="search"
+            aria-label="Search scripts"
+            placeholder={`Search scripts  ${MOD}+K`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && filtered[0]) setSelected(filtered[0].id);
-              if (e.key === "ArrowDown") (document.querySelector(".item") as HTMLElement | null)?.focus();
+              if (e.key === "Enter" && filtered[0]) {
+                // Without this the same Enter lands on the field that just got focus and submits the form.
+                e.preventDefault();
+                pick(filtered[0].id, true);
+              }
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                (document.querySelector(".list .item:not(.home)") as HTMLElement | null)?.focus();
+              }
             }}
           />
         </div>
-        <ScriptList
-          scripts={filtered}
-          schedules={state.schedules}
-          live={liveByScript}
-          selected={selected}
-          onSelect={setSelected}
-          empty={scripts.length === 0}
-        />
+        <nav className="list" aria-label="Scripts">
+          {!query && (
+            <button className={`item home ${showBoard ? "active" : ""}`} aria-current={showBoard ? "page" : undefined} onClick={() => setSelected(ACTIVITY)}>
+              <span className="item-name">
+                Activity
+                {attention > 0 && (
+                  <span className="tag warn" aria-label={`${attention} need${attention === 1 ? "s" : ""} you`}>
+                    {attention}
+                  </span>
+                )}
+              </span>
+            </button>
+          )}
+          <ScriptList
+            scripts={filtered}
+            schedules={state.schedules}
+            runs={runs}
+            live={liveByScript}
+            selected={selected}
+            onSelect={pick}
+            empty={scripts.length === 0}
+          />
+        </nav>
         <div className="sidebar-foot">
           <button onClick={() => setDialog("new")}>New script</button>
-          <button className="ghost" title="Settings" onClick={() => setDialog("settings")}>
+          <button className="ghost" onClick={() => setDialog("settings")}>
             Settings
           </button>
-          {!online && <span className="offline">Offline</span>}
+          {!online && (
+            <span className="offline" role="status" title="Lost the connection to the engine. Reconnecting…">
+              Offline
+            </span>
+          )}
         </div>
       </aside>
       <main className="main">
@@ -165,14 +225,16 @@ export function App() {
             state={state}
             runs={runs}
             setRuns={setRuns}
+            opening={opening}
             onBack={() => setSelected(null)}
           />
         ) : (
-          <div className="center muted">
-            {scripts.length ? "Pick a script." : "No scripts yet."}
-          </div>
+          <Board state={state} runs={runs} onOpen={open} onBack={() => setSelected(null)} />
         )}
       </main>
+      <div className="sr-only" aria-live="polite">
+        {announce}
+      </div>
       {dialog === "new" && (
         <NewScriptDialog
           api={api}
@@ -181,7 +243,7 @@ export function App() {
           onCreated={async (id) => {
             setDialog(null);
             await refresh();
-            setSelected(id);
+            pick(id, false);
           }}
         />
       )}
@@ -193,6 +255,7 @@ export function App() {
 function ScriptList({
   scripts,
   schedules,
+  runs,
   live,
   selected,
   onSelect,
@@ -200,9 +263,10 @@ function ScriptList({
 }: {
   scripts: Script[];
   schedules: Schedule[];
+  runs: Record<string, RunDetail>;
   live: Map<string, RunDetail>;
   selected: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focus: boolean) => void;
   empty: boolean;
 }) {
   const groups = useMemo(() => {
@@ -214,33 +278,49 @@ function ScriptList({
     return [...m.entries()];
   }, [scripts]);
 
-  if (!scripts.length) return <div className="list muted pad">{empty ? "Add a script to get started." : "No matches."}</div>;
+  if (!scripts.length) return <div className="muted pad">{empty ? "No scripts yet. Use New script to add one." : "No matches."}</div>;
 
   return (
-    <nav className="list">
+    <>
       {groups.map(([group, items]) => (
         <div key={group}>
           <div className="group">{group}</div>
           {items.map((s) => {
             const sched = schedules.find((x) => x.script === s.id && x.enabled);
+            const last = sched?.last ? (runs[sched.last.id] ?? sched.last) : null;
             const run = live.get(s.id);
             return (
               <button
                 key={s.id}
                 className={`item ${s.id === selected ? "active" : ""}`}
-                onClick={() => onSelect(s.id)}
+                aria-current={s.id === selected ? "page" : undefined}
+                // detail is 0 when a key pressed the button: then move on into the form.
+                onClick={(e) => onSelect(s.id, e.detail === 0)}
                 onKeyDown={(e) => {
-                  const el = e.currentTarget;
-                  const all = [...document.querySelectorAll<HTMLElement>(".item")];
-                  const i = all.indexOf(el);
-                  if (e.key === "ArrowDown") all[i + 1]?.focus();
-                  if (e.key === "ArrowUp") (all[i - 1] ?? document.querySelector<HTMLElement>(".search input"))?.focus();
+                  const all = [...document.querySelectorAll<HTMLElement>(".list .item")];
+                  const i = all.indexOf(e.currentTarget);
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    all[i + 1]?.focus();
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    (all[i - 1] ?? document.querySelector<HTMLElement>(".search input"))?.focus();
+                  }
                 }}
               >
                 <span className="item-name">
-                  {s.name}
-                  {run && <span className={`dot ${run.status}`} title={run.status === "waiting" ? "Waiting for input" : "Running"} />}
-                  {sched && <span className="tag" title={`Runs every ${sched.every}`}>{sched.every}</span>}
+                  <span className="grow">{s.name}</span>
+                  {run?.status === "running" && <span className="dot running" title="Running" aria-label="Running" />}
+                  {run?.status === "waiting" ? (
+                    <span className="tag warn">waiting</span>
+                  ) : last?.status === "failed" ? (
+                    <span className="tag bad" title={`Last scheduled run: ${lastLabel(last)}`}>
+                      failed
+                    </span>
+                  ) : (
+                    sched && <span className="tag">every {sched.every}</span>
+                  )}
                   {s.error && <span className="tag bad">error</span>}
                 </span>
                 {s.description && <span className="item-desc">{s.description}</span>}
@@ -249,9 +329,11 @@ function ScriptList({
           })}
         </div>
       ))}
-    </nav>
+    </>
   );
 }
+
+type Msg = { text: string; tone: "bad" | "note"; undo?: () => void };
 
 function ScriptView({
   api,
@@ -259,6 +341,7 @@ function ScriptView({
   state,
   runs,
   setRuns,
+  opening,
   onBack,
 }: {
   api: Api;
@@ -266,22 +349,33 @@ function ScriptView({
   state: State;
   runs: Record<string, RunDetail>;
   setRuns: React.Dispatch<React.SetStateAction<Record<string, RunDetail>>>;
+  opening: Opening;
   onBack: () => void;
 }) {
   const schedule = state.schedules.find((s) => s.script === script.id) ?? null;
   const [values, setValues] = useState<Record<string, unknown>>(() => ({
     ...defaults(script.params),
-    ...(schedule?.params ?? {}),
     ...store.get(`values:${script.id}`, {}),
   }));
+  const [invalid, setInvalid] = useState<string[]>([]);
   const [history, setHistory] = useState<RunSummary[]>([]);
-  const [shownRun, setShownRun] = useState<string | null>(null);
-  const [tab, setTab] = useState<"output" | "history">("output");
-  const [every, setEvery] = useState(schedule?.every ?? script.schedule?.every ?? "10m");
-  const [msg, setMsg] = useState<string | null>(null);
-  const [editWith, setEditWith] = useState<{ id: string; name: string } | null>(null);
+  const [shownRun, setShownRun] = useState<string | null>(opening.run ?? null);
+  const [tab, setTab] = useState<Tab>(opening.tab ?? "output");
+  const [msg, setMsg] = useState<Msg | null>(null);
+  const [editWith, setEditWith] = useState<{ title: string; text: string } | null>(null);
+  const view = useRef<HTMLDivElement>(null);
+  const runButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => store.set(`values:${script.id}`, values), [script.id, values]);
+
+  // Opened from the board (a run or tab) or picked with the keyboard (focus the form).
+  useEffect(() => {
+    if (opening.run) setShownRun(opening.run);
+    if (opening.tab || opening.run) setTab(opening.tab ?? "output");
+    if (!opening.focus) return;
+    const first = view.current?.querySelector<HTMLElement>(".form input, .form select, .form textarea");
+    (first ?? runButton.current)?.focus();
+  }, [opening]);
 
   const loadHistory = useCallback(() => api.runs(script.id).then(setHistory).catch(() => {}), [api, script.id]);
   useEffect(() => {
@@ -292,7 +386,7 @@ function ScriptView({
   const known = Object.values(runs)
     .filter((r) => r.script === script.id)
     .sort((a, b) => b.startedAt - a.startedAt);
-  const live = known.find((r) => r.status === "running" || r.status === "waiting");
+  const live = known.find(isLive);
   const runId = shownRun ?? live?.id ?? known[0]?.id ?? history[0]?.id ?? null;
   const run = runId ? runs[runId] : null;
 
@@ -311,7 +405,13 @@ function ScriptView({
 
   const start = async (params = values) => {
     const miss = missing(script.params, params);
-    if (miss.length) return setMsg(`Fill in: ${miss.join(", ")}`);
+    if (miss.length) {
+      setInvalid(miss);
+      setMsg({ text: `Fill in ${miss.map((k) => labelOf(k, script.params[k]!)).join(", ")}.`, tone: "bad" });
+      document.getElementById(fieldId(miss[0]!))?.focus();
+      return;
+    }
+    setInvalid([]);
     setMsg(null);
     try {
       const { id } = await api.run(script.id, params);
@@ -322,28 +422,48 @@ function ScriptView({
       setShownRun(null);
       setTab("output");
     } catch (e: any) {
-      setMsg(e.message);
+      setMsg({ text: e.message, tone: "bad" });
     }
   };
 
-  const toggleSchedule = async (on: boolean) => {
-    if (on) {
-      const miss = missing(script.params, values);
-      if (miss.length) return setMsg(`Fill in before scheduling: ${miss.join(", ")}`);
-    }
-    try {
-      await api.schedule(script.id, every, values, on);
-      setMsg(null);
-    } catch (e: any) {
-      setMsg(e.message);
-    }
-  };
+  // Ctrl/Cmd+Enter runs from anywhere in the window, not only from inside the form.
+  const startRef = useRef(start);
+  startRef.current = start;
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || modalOpen()) return;
+      e.preventDefault();
+      if (!liveRef.current && !script.error) startRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
-  const scheduleDirty = schedule?.enabled && (schedule.every !== every || JSON.stringify(schedule.params) !== JSON.stringify(values));
   const hasParams = Object.keys(script.params).length > 0;
+  const agent = preferredHarness(state.harnesses);
+  const editLabel = state.harnesses.length === 1 ? `Edit with ${agent!.name}` : "Edit with agent";
+  const scheduleOn = !!schedule?.enabled;
+  const schedLast = schedule?.last ? (runs[schedule.last.id] ?? schedule.last) : null;
+
+  const fixFailure = (r: RunDetail) => {
+    const err = r.events
+      .filter((e) => e.t === "err")
+      .map((e) => (e as { text: string }).text)
+      .join("")
+      .trim()
+      .split("\n")
+      .slice(-12)
+      .join("\n");
+    setEditWith({
+      title: "Fix this script",
+      text: `This run failed${r.exitCode ? ` with exit code ${r.exitCode}` : ""}.\n${err || r.error || ""}\n\nFind the cause and fix it.`,
+    });
+  };
 
   return (
-    <div className="view" onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && !live && start()}>
+    <div className="view" ref={view}>
       <header className="view-head">
         <button className="ghost back" onClick={onBack} aria-label="Back to list">
           ‹ Scripts
@@ -352,82 +472,159 @@ function ScriptView({
         {script.description && <p className="desc">{script.description}</p>}
         <div className="row wrap small">
           <code className="path">{script.id}</code>
-          <button className="link" onClick={() => api.open(script.id)}>
-            Open
+          <button className="link" onClick={() => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
+            Open file
           </button>
-          {state.harnesses.map((h) => (
-            <button
-              key={h.id}
-              className="link"
-              onClick={() => setEditWith(h)}
-            >
-              Edit with {h.name}
+          {agent && (
+            <button className="link" onClick={() => setEditWith({ title: editLabel, text: "" })}>
+              {editLabel}
             </button>
-          ))}
+          )}
         </div>
       </header>
 
       {editWith && (
         <EditWithDialog
-          harness={editWith}
+          title={editWith.title}
+          harnesses={state.harnesses}
+          initial={editWith.text}
           onClose={() => setEditWith(null)}
-          onSubmit={(what) => {
+          onSubmit={(h, what) => {
             setEditWith(null);
             api
-              .editWith(script.id, editWith.id, what)
-              .then(() => setMsg(`Opened ${editWith.name} in a terminal.`))
-              .catch((e) => setMsg(e.message));
+              .editWith(script.id, h.id, what)
+              .then(() => setMsg({ text: `Opened ${h.name} in a terminal.`, tone: "note" }))
+              .catch((e) => setMsg({ text: e.message, tone: "bad" }));
           }}
         />
       )}
 
-      {script.error && <pre className="error-box">{script.error}</pre>}
+      {script.error && (
+        <div className="error-wrap">
+          <pre className="error-box">{script.error}</pre>
+          {agent && (
+            <button
+              className="link"
+              onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}
+            >
+              Fix with {state.harnesses.length === 1 ? agent.name : "agent"}
+            </button>
+          )}
+        </div>
+      )}
 
-      {hasParams && <ParamForm params={script.params} values={values} onChange={setValues} onSubmit={() => !live && start()} />}
+      {hasParams && (
+        <ParamForm
+          params={script.params}
+          values={values}
+          invalid={invalid}
+          onChange={(v) => {
+            setValues(v);
+            if (invalid.length) setInvalid(missing(script.params, v).filter((k) => invalid.includes(k)));
+          }}
+          onSubmit={() => !live && start()}
+        />
+      )}
 
       <div className="actions">
         {live ? (
-          <button className="danger" onClick={() => api.stop(live.id)}>
+          <button className="danger run-btn" onClick={() => api.stop(live.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
             Stop
           </button>
         ) : (
-          <button className="primary" onClick={() => start()} disabled={!!script.error} title="Ctrl+Enter">
+          <button ref={runButton} className="primary run-btn" onClick={() => start()} disabled={!!script.error} aria-keyshortcuts="Control+Enter">
             Run
           </button>
         )}
-        <label className="check schedule">
-          <input type="checkbox" checked={!!schedule?.enabled} onChange={(e) => toggleSchedule(e.target.checked)} disabled={!!script.error} />
-          Every
-        </label>
-        <input className="every" value={every} onChange={(e) => setEvery(e.target.value)} aria-label="Interval" />
-        {scheduleDirty && (
-          <button className="link" onClick={() => toggleSchedule(true)}>
-            Save schedule
-          </button>
-        )}
-        {schedule?.enabled && schedule.nextRun && !scheduleDirty && <span className="muted small">next {fmtWhen(schedule.nextRun)}</span>}
+        <span className="kbd-hint muted small" aria-hidden>
+          {MOD}+Enter
+        </span>
       </div>
-      {msg && <div className="msg">{msg}</div>}
+      {msg && (
+        <div className={`msg ${msg.tone}`} role={msg.tone === "bad" ? "alert" : "status"}>
+          {msg.text}
+          {msg.undo && (
+            <>
+              {" "}
+              <button
+                className="link"
+                onClick={() => {
+                  msg.undo!();
+                  setMsg(null);
+                }}
+              >
+                Undo
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="tabs">
-        <button className={tab === "output" ? "on" : ""} onClick={() => setTab("output")}>
-          Output
-        </button>
-        <button className={tab === "history" ? "on" : ""} onClick={() => setTab("history")}>
-          History{history.length ? ` (${history.length})` : ""}
-        </button>
+        <div role="tablist" aria-label="Script" className="tablist">
+        {(
+          [
+            ["output", "Output"],
+            ["history", `History${history.length ? ` (${history.length})` : ""}`],
+            ["schedule", scheduleOn ? `Every ${schedule!.every}` : "Schedule"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            id={`tab-${id}`}
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            className={tab === id ? "on" : ""}
+            onClick={() => setTab(id)}
+            onKeyDown={(e) => {
+              const order: Tab[] = ["output", "history", "schedule"];
+              const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+              if (!d) return;
+              const next = order[(order.indexOf(id) + d + order.length) % order.length]!;
+              setTab(next);
+              document.getElementById(`tab-${next}`)?.focus();
+            }}
+          >
+            {label}
+            {id === "schedule" && scheduleOn && schedLast && (schedLast.status === "failed" || schedLast.status === "waiting") && (
+              <span className={`dot ${schedLast.status}`} aria-label={STATUS[schedLast.status]} />
+            )}
+          </button>
+        ))}
+        </div>
         {run && tab === "output" && <RunStatusLine run={run} />}
       </div>
 
-      {tab === "output" &&
-        (run ? (
-          <RunOutput run={run} onAnswer={(id, v) => api.answer(run.id, id, v).catch((e) => setMsg(e.message))} />
-        ) : (
-          <div className="output muted">No runs yet.</div>
-        ))}
+      {tab === "output" && (
+        <div role="tabpanel" id="panel-output" aria-labelledby="tab-output" className="panel">
+          {run ? (
+            <RunOutput
+              key={run.id}
+              run={run}
+              onAnswer={(id, v) => api.answer(run.id, id, v).catch((e) => setMsg({ text: e.message, tone: "bad" }))}
+              footer={
+                run.status === "failed" && (
+                  <div className="row wrap after-run">
+                    {!live && (
+                      <button onClick={() => start({ ...values, ...run.params })} disabled={!!script.error}>
+                        Run again
+                      </button>
+                    )}
+                    {agent && <button onClick={() => fixFailure(run)}>Fix with {state.harnesses.length === 1 ? agent.name : "agent"}</button>}
+                  </div>
+                )
+              }
+            />
+          ) : (
+            <div className="output muted">No runs yet. {hasParams ? "Fill in the form and press Run." : "Press Run to start it."}</div>
+          )}
+        </div>
+      )}
 
       {tab === "history" && (
-        <div className="history">
+        <div className="history" role="tabpanel" id="panel-history" aria-labelledby="tab-history">
           {history.length === 0 && <div className="muted pad">No runs yet.</div>}
           {history.map((h) => (
             <div key={h.id} className={`hist ${h.id === runId ? "active" : ""}`}>
@@ -438,9 +635,10 @@ function ScriptView({
                   setTab("output");
                 }}
               >
-                <span className={`dot ${h.status}`} />
+                <span className={`dot ${h.status}`} aria-hidden />
+                <span className={`hist-status ${h.status === "failed" ? "bad-text" : ""}`}>{STATUS[h.status]}</span>
                 <span>{fmtTime(h.startedAt)}</span>
-                <span className="muted">{h.source === "manual" ? "" : h.source === "mcp" ? "agent" : "scheduled"}</span>
+                {SOURCE[h.source] && <span className="muted">{SOURCE[h.source]}</span>}
                 <span className="muted">{h.endedAt ? fmtDur(h.endedAt - h.startedAt) : ""}</span>
                 {Object.keys(h.params).length > 0 && <span className="muted params">{fmtParams(h.params)}</span>}
               </button>
@@ -449,53 +647,51 @@ function ScriptView({
                   className="link"
                   title="Fill the form with this run's values"
                   onClick={() => {
+                    const before = values;
                     setValues({ ...values, ...h.params });
-                    setTab("output");
+                    setMsg({ text: `Filled the form from the run at ${fmtTime(h.startedAt)}.`, tone: "note", undo: () => setValues(before) });
                   }}
                 >
                   Use values
                 </button>
               )}
-              <button className="link" disabled={!!live} onClick={() => start({ ...values, ...h.params })}>
+              <button className="link" disabled={!!live || !!script.error} onClick={() => start({ ...values, ...h.params })}>
                 Run again
               </button>
             </div>
           ))}
         </div>
       )}
+
+      {tab === "schedule" && (
+        <SchedulePanel
+          key={`${schedule?.enabled}:${schedule?.every}`}
+          api={api}
+          script={script}
+          schedule={schedule}
+          last={schedLast}
+          values={values}
+          onMissing={(keys) => {
+            setInvalid(keys);
+            document.getElementById(fieldId(keys[0]!))?.focus();
+          }}
+          onShowRun={(id) => {
+            setShownRun(id);
+            setTab("output");
+          }}
+        />
+      )}
     </div>
   );
 }
 
 function RunStatusLine({ run }: { run: RunDetail }) {
-  const label = { running: "Running", waiting: "Waiting for you", ok: "Done", failed: "Failed", stopped: "Stopped" }[run.status];
   return (
-    <span className={`status ${run.status}`}>
-      <span className={`dot ${run.status}`} />
-      {label}
+    <span className={`status ${run.status}`} role="status">
+      <span className={`dot ${run.status}`} aria-hidden />
+      {STATUS[run.status]}
       {run.status === "failed" && run.exitCode !== null && run.exitCode !== 0 && ` (exit ${run.exitCode})`}
       <span className="muted"> · {fmtTime(run.startedAt)}</span>
     </span>
   );
-}
-
-function fmtTime(t: number) {
-  const d = new Date(t);
-  const today = new Date().toDateString() === d.toDateString();
-  return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
-}
-function fmtWhen(t: number) {
-  const s = Math.round((t - Date.now()) / 1000);
-  if (s <= 5) return "now";
-  if (s < 60) return `in ${s} s`;
-  if (s < 3600) return `in ${Math.round(s / 60)} min`;
-  return `at ${new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-}
-function fmtDur(ms: number) {
-  return ms < 1000 ? `${ms} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60_000)} min`;
-}
-function fmtParams(p: Record<string, unknown>) {
-  return Object.entries(p)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join("  ");
 }

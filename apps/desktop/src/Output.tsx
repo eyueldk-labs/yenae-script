@@ -1,19 +1,38 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { isTauri, pickPath, type AskRequest, type RunDetail, type RunEvent, type ShowItem } from "./api";
 
-export function RunOutput({ run, onAnswer }: { run: RunDetail; onAnswer: (id: number, value: unknown) => void }) {
+export function RunOutput({
+  run,
+  onAnswer,
+  footer,
+}: {
+  run: RunDetail;
+  onAnswer: (id: number, value: unknown) => void;
+  /** Shown after a finished run, e.g. what to do about a failure. */
+  footer?: ReactNode;
+}) {
   const end = useRef<HTMLDivElement>(null);
   const live = run.status === "running" || run.status === "waiting";
 
-  // Follow new output while the run is live, unless the user scrolled up to read.
+  // Follow new output, including the results a run shows as it ends, unless the user
+  // scrolled up to read. Whether they were following is noted on scroll, before new
+  // content grows the page, so a large table or markdown block doesn't break it.
+  const following = useRef(true);
+  const sawLive = useRef(live);
+  if (live) sawLive.current = true;
   useEffect(() => {
-    if (!live || !end.current) return;
-    const scroller = end.current.closest(".main");
-    const nearBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
-    if (nearBottom) end.current.scrollIntoView({ block: "nearest" });
-  }, [live, run.events.length, run.events[run.events.length - 1], run.pendingAsk?.id]);
+    const scroller = end.current?.closest(".main");
+    if (!scroller) return;
+    const onScroll = () => (following.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120);
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    if (!sawLive.current || !following.current || !end.current) return;
+    end.current.scrollIntoView({ block: "nearest" });
+  }, [run.status, run.events.length, run.events[run.events.length - 1], run.pendingAsk?.id]);
 
   const pending = run.pendingAsk;
   const answers = useMemo(() => {
@@ -29,6 +48,7 @@ export function RunOutput({ run, onAnswer }: { run: RunDetail; onAnswer: (id: nu
         <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />
       ))}
       {pending && <AskCard key={pending.id} req={pending.request} onAnswer={(v) => onAnswer(pending.id, v)} />}
+      {!live && footer}
       <div ref={end} />
     </div>
   );
@@ -101,11 +121,14 @@ function AskCard({ req, onAnswer }: { req: AskRequest; onAnswer: (v: unknown) =>
   const [text, setText] = useState(req.kind === "text" ? (req.default ?? "") : "");
   const input = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   useEffect(() => input.current?.focus(), []);
+  const qid = useId();
 
   if (req.kind === "confirm") {
     return (
-      <div className="ask">
-        <div className="ask-q">{req.message}</div>
+      <div className="ask" role="group" aria-labelledby={qid}>
+        <div className="ask-q" id={qid}>
+          {req.message}
+        </div>
         <div className="row">
           <button className={req.default !== false ? "primary" : ""} autoFocus={req.default !== false} onClick={() => onAnswer(true)}>
             Yes
@@ -119,8 +142,10 @@ function AskCard({ req, onAnswer }: { req: AskRequest; onAnswer: (v: unknown) =>
   }
   if (req.kind === "select") {
     return (
-      <div className="ask">
-        <div className="ask-q">{req.message}</div>
+      <div className="ask" role="group" aria-labelledby={qid}>
+        <div className="ask-q" id={qid}>
+          {req.message}
+        </div>
         <div className="choices">
           {req.options.map((o, i) => (
             <button key={o.value} autoFocus={i === 0} onClick={() => onAnswer(o.value)}>
@@ -135,12 +160,13 @@ function AskCard({ req, onAnswer }: { req: AskRequest; onAnswer: (v: unknown) =>
   return (
     <form
       className="ask"
+      aria-labelledby={qid}
       onSubmit={(e) => {
         e.preventDefault();
         onAnswer(text);
       }}
     >
-      <label className="ask-q" htmlFor="ask-input">
+      <label className="ask-q" htmlFor="ask-input" id={qid}>
         {req.message}
       </label>
       <div className="row">

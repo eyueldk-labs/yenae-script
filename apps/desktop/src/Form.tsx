@@ -14,23 +14,37 @@ export function defaults(params: Record<string, ParamSpec>): Record<string, unkn
   return out;
 }
 
-/** Names of required params that are empty. */
+/** Keys of required params that are empty. */
 export function missing(params: Record<string, ParamSpec>, values: Record<string, unknown>) {
   return Object.entries(params)
     .filter(([k, p]) => !p.optional && p.kind !== "boolean" && (values[k] === "" || values[k] === undefined || values[k] === null))
-    .map(([k, p]) => labelOf(k, p));
+    .map(([k]) => k);
 }
+
+/** Show a param value the way the form would, e.g. for a schedule's saved values. */
+export function fmtValue(spec: ParamSpec | undefined, v: unknown) {
+  if (v === "" || v === undefined || v === null) return "–";
+  if (spec?.secret) return "••••";
+  if (spec?.kind === "boolean") return v ? "Yes" : "No";
+  if (spec?.kind === "select") return spec.options?.find((o) => o.value === v)?.label ?? String(v);
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+
+export const fieldId = (key: string) => `p-${key}`;
 
 export function ParamForm({
   params,
   values,
   onChange,
   onSubmit,
+  invalid = [],
 }: {
   params: Record<string, ParamSpec>;
   values: Record<string, unknown>;
   onChange: (v: Record<string, unknown>) => void;
   onSubmit: () => void;
+  /** Required params left empty on the last Run. */
+  invalid?: string[];
 }) {
   const set = (k: string, v: unknown) => onChange({ ...values, [k]: v });
   return (
@@ -42,23 +56,42 @@ export function ParamForm({
       }}
     >
       {Object.entries(params).map(([key, p]) => (
-        <Field key={key} id={key} spec={p} value={values[key]} onChange={(v) => set(key, v)} />
+        <Field key={key} id={key} spec={p} value={values[key]} invalid={invalid.includes(key)} onChange={(v) => set(key, v)} />
       ))}
       <button type="submit" hidden />
     </form>
   );
 }
 
-function Field({ id, spec, value, onChange }: { id: string; spec: ParamSpec; value: unknown; onChange: (v: unknown) => void }) {
+function Field({
+  id,
+  spec,
+  value,
+  invalid,
+  onChange,
+}: {
+  id: string;
+  spec: ParamSpec;
+  value: unknown;
+  invalid: boolean;
+  onChange: (v: unknown) => void;
+}) {
   const label = labelOf(id, spec);
-  const fid = `p-${id}`;
-  const hint = spec.description && <div className="hint">{spec.description}</div>;
+  const fid = fieldId(id);
+  const hintId = `${fid}-hint`;
+  const hint = (spec.description || invalid) && (
+    <div id={hintId} className={invalid ? "hint bad" : "hint"}>
+      {[invalid && "Required.", spec.description].filter(Boolean).join(" ")}
+    </div>
+  );
+  // Shared by every text-like control: links the hint and flags an empty required value.
+  const a11y = { "aria-invalid": invalid || undefined, "aria-describedby": hint ? hintId : undefined };
 
   if (spec.kind === "boolean") {
     return (
       <div className="field">
         <label className="check">
-          <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />
+          <input id={fid} type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />
           {label}
         </label>
         {hint}
@@ -70,7 +103,7 @@ function Field({ id, spec, value, onChange }: { id: string; spec: ParamSpec; val
   switch (spec.kind) {
     case "select":
       input = (
-        <select id={fid} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+        <select id={fid} {...a11y} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
           {spec.options?.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -83,6 +116,7 @@ function Field({ id, spec, value, onChange }: { id: string; spec: ParamSpec; val
       input = (
         <input
           id={fid}
+          {...a11y}
           type="number"
           min={spec.min}
           max={spec.max}
@@ -97,6 +131,7 @@ function Field({ id, spec, value, onChange }: { id: string; spec: ParamSpec; val
         <div className="row">
           <input
             id={fid}
+            {...a11y}
             className="grow mono"
             value={String(value ?? "")}
             placeholder={spec.kind === "folder" ? "Folder path" : "File path"}
@@ -118,10 +153,11 @@ function Field({ id, spec, value, onChange }: { id: string; spec: ParamSpec; val
       break;
     default:
       input = spec.multiline ? (
-        <textarea id={fid} rows={4} value={String(value ?? "")} placeholder={spec.placeholder} onChange={(e) => onChange(e.target.value)} />
+        <textarea id={fid} {...a11y} rows={4} value={String(value ?? "")} placeholder={spec.placeholder} onChange={(e) => onChange(e.target.value)} />
       ) : (
         <input
           id={fid}
+          {...a11y}
           type={spec.secret ? "password" : "text"}
           value={String(value ?? "")}
           placeholder={spec.placeholder}

@@ -7,7 +7,7 @@ import { scanWorkspace, type Project, type ScriptInfo } from "./scan";
 import { ensureWorkspace, createProject, createScript } from "./workspace";
 import { detectHarnesses, launchHarness, openInEditor } from "./launch";
 import { insideWorkspace, parseEvery } from "./paths";
-import type { RunSource } from "./db";
+import type { RunSource, RunSummary } from "./db";
 
 export interface Settings {
   workspace: string;
@@ -149,11 +149,19 @@ export class Engine {
       mcpUrl: this.mcpUrl,
       projects: this.projects.map(({ id, name }) => ({ id, name })),
       scripts: this.scripts.map(({ path, ...s }) => s),
-      schedules: this.store.schedules(),
+      // Each schedule carries its last run, so a failing one can't hide behind its interval.
+      schedules: this.store.schedules().map((s) => ({ ...s, last: this.lastRun(s.lastRunId) })),
+      recent: this.store.listRuns(undefined, 12).map((r) => (this.runs.live.has(r.id) ? summarize(this.runs.get(r.id)!) : r)),
       live: [...this.runs.live.keys()].map((id) => this.runs.get(id)),
       harnesses: detectHarnesses(),
       platform: process.platform,
     };
+  }
+
+  private lastRun(id: string | null) {
+    if (!id) return null;
+    const r = this.runs.get(id);
+    return r ? summarize(r) : null;
   }
 
   newProject(name: string) {
@@ -186,4 +194,9 @@ Add npm packages to the project's package.json with \`bun add\` in the project f
   open(scriptId: string) {
     openInEditor(this.settings.workspace, insideWorkspace(this.settings.workspace, scriptId));
   }
+}
+
+function summarize(r: RunSummary & { events?: unknown; pendingAsk?: unknown }): RunSummary & { pendingAsk?: unknown } {
+  const { events, ...rest } = r;
+  return rest;
 }

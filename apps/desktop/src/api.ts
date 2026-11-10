@@ -23,6 +23,8 @@ export interface Script {
   params: Record<string, ParamSpec>;
   schedule?: { every: string };
   plain: boolean;
+  /** The script calls ask.* itself, so a run may stop and wait for an answer. */
+  asks: boolean;
   error?: string;
 }
 
@@ -33,6 +35,7 @@ export interface Schedule {
   enabled: boolean;
   nextRun: number | null;
   lastRunId: string | null;
+  last: RunSummary | null;
 }
 
 export type RunStatus = "running" | "waiting" | "ok" | "failed" | "stopped";
@@ -78,6 +81,8 @@ export interface State {
   scripts: Script[];
   schedules: Schedule[];
   live: RunDetail[];
+  /** Newest runs of any script. */
+  recent: RunSummary[];
   harnesses: { id: string; name: string }[];
   platform: string;
 }
@@ -103,7 +108,7 @@ export async function connect(): Promise<Conn> {
       if (info) return { base: `http://127.0.0.1:${info.port}`, token: info.token };
       await new Promise((r) => setTimeout(r, 100));
     }
-    throw new Error("The background engine didn't start.");
+    throw new Error("The background engine didn't start. Quit Yenae Script from the tray and open it again.");
   }
   const q = new URLSearchParams(location.search);
   const token = q.get("token") ?? localStorage.getItem("yenae.token") ?? "";
@@ -123,11 +128,17 @@ export class Api {
   }
 
   private async req<T>(path: string, body?: unknown): Promise<T> {
-    const res = await fetch(this.conn.base + path, {
-      method: body === undefined ? "GET" : "POST",
-      headers: { authorization: `Bearer ${this.conn.token}`, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(this.conn.base + path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${this.conn.token}`, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch {
+      // fetch only says "Failed to fetch"; the cause is almost always the engine being down.
+      throw new Error("The engine isn't responding.");
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
     return data as T;

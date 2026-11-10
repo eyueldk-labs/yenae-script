@@ -26,6 +26,8 @@ export interface ScriptInfo {
   schedule?: ScriptMeta["schedule"];
   /** No defineScript: runs as-is, no form. */
   plain: boolean;
+  /** The file calls ask.* itself, so a run can stop and wait for an answer. Helpers in lib/ aren't seen. */
+  asks: boolean;
   error?: string;
 }
 
@@ -156,11 +158,13 @@ export async function scanWorkspace(workspace: string, store: Store): Promise<{ 
               name: titleFromFile(path),
               params: {},
               plain: true,
+              asks: false,
             };
             let source = "";
             try {
               source = readFileSync(path, "utf8");
             } catch {}
+            info.asks = /\bask\s*\.\s*(?:text|select|confirm|file|folder)\s*\(/.test(source);
             if (!/\bdefineScript\s*\(/.test(source)) {
               // Plain script: describing would run it, so read only a leading comment.
               const m = /^\s*(?:\/\/\s*(.+)|\/\*\*?\s*\n?\s*\*?\s*(.+))/.exec(source);

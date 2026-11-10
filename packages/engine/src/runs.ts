@@ -170,7 +170,9 @@ export class Runs {
     run.pendingAsk = null;
     const ms = run.endedAt - run.startedAt;
     const label = run.status === "ok" ? "Done" : run.status === "stopped" ? "Stopped" : "Failed";
-    this.push(run as any, { t: "sys", text: `${label} in ${fmtMs(ms)}${code !== null && code !== 0 ? ` (exit ${code})` : ""}`, at: run.endedAt });
+    // A stopped run's exit code is just the kill signal, so only failures show it.
+    const exit = run.status === "failed" && code !== null && code !== 0 ? ` (exit ${code})` : "";
+    this.push(run as any, { t: "sys", text: `${label} in ${fmtMs(ms)}${exit}`, at: run.endedAt });
     this.store.finishRun(run, run.events);
     this.store.pruneRuns(run.script);
     this.live.delete(run.id);

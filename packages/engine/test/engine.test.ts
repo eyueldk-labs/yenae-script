@@ -48,6 +48,8 @@ test("scan finds scripts, folders and params", () => {
   expect(plain.plain).toBe(true);
   expect(plain.folder).toBe("sub");
   expect(plain.description).toBe("Says hi");
+  expect(ask.asks).toBe(true);
+  expect(plain.asks).toBe(false);
   expect(engine.script("p/scripts/broken.ts").error).toContain("does-not-exist");
 });
 
@@ -79,4 +81,23 @@ test("stop ends a run", async () => {
   engine.runs.stop(run.id);
   const done = await engine.runs.whenDone(run.id);
   expect(done.status).toBe("stopped");
+  const last = engine.store.getRun(run.id)!.events.at(-1) as any;
+  expect(last.text).toMatch(/^Stopped in /);
+  expect(last.text).not.toContain("exit");
+}, 30_000);
+
+test("state shows each schedule's last run and recent runs", async () => {
+  engine.setSchedule("p/scripts/sub/plain.ts", "1h", {}, true);
+  let sched: any;
+  for (let i = 0; i < 100; i++) {
+    sched = engine.state().schedules.find((s) => s.script === "p/scripts/sub/plain.ts");
+    if (sched?.last && sched.last.status !== "running") break;
+    await Bun.sleep(50);
+  }
+  expect(sched.last.status).toBe("ok");
+  expect(sched.last.source).toBe("schedule");
+  expect(sched.last.events).toBeUndefined();
+  const recent = engine.state().recent;
+  expect(recent[0]!.id).toBe(sched.last.id);
+  engine.setSchedule("p/scripts/sub/plain.ts", "1h", {}, false);
 }, 30_000);
