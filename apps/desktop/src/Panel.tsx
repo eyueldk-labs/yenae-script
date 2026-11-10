@@ -69,6 +69,8 @@ export function Panel({
     return opening.run ?? (l?.status === "failed" ? l.id : null);
   });
   const [tab, setTab] = useState<Tab>(opening.tab ?? "run");
+  // A run opened from History shows there, with a way back to the list.
+  const [histRun, setHistRun] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg | null>(null);
   const [editWith, setEditWith] = useState<{ title: string; text: string } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -117,13 +119,15 @@ export function Panel({
 
   // Load a finished run's output when it's shown but not in memory.
   useEffect(() => {
-    if (runId && (!runs[runId] || (runs[runId]!.events.length === 0 && !isLive(runs[runId]!)))) {
-      api
-        .getRun(runId)
-        .then((r) => setRuns((p) => (p[r.id] && p[r.id]!.events.length > r.events.length ? p : { ...p, [r.id]: r })))
-        .catch(() => {});
+    for (const id of [runId, histRun]) {
+      if (id && (!runs[id] || (runs[id]!.events.length === 0 && !isLive(runs[id]!)))) {
+        api
+          .getRun(id)
+          .then((r) => setRuns((p) => (p[r.id] && p[r.id]!.events.length > r.events.length ? p : { ...p, [r.id]: r })))
+          .catch(() => {});
+      }
     }
-  }, [runId]);
+  }, [runId, histRun]);
 
   const start = async (params = values) => {
     const miss = missing(script.params, params);
@@ -204,13 +208,14 @@ export function Panel({
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
   ];
 
-  const shownIsOld = !!run && !isLive(run) && params.length > 0 && JSON.stringify(run.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
+  const isOld = (r: RunDetail) => !isLive(r) && params.length > 0 && JSON.stringify(r.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
 
-  // Opened from "See why": the failure comes first, above the form.
+  // A failure always shows first, right under the tabs and above the form.
   const failFirst = !!run && !live && run.status === "failed";
-  const output = run && (
-              <section className={`run-output ${failFirst ? "result-box failed" : ""}`} aria-label="Result">
-                {!live && (
+  /** One run's result, in the Run tab or opened from History ("back" returns to the list). */
+  const result = (run: RunDetail, back?: () => void) => (
+              <section className={`run-output ${!isLive(run) && run.status === "failed" ? "result-box failed" : ""} ${back ? "in-history" : ""}`} aria-label="Result">
+                {!isLive(run) && (
                   <div className="run-head small">
                     <span className={`dot ${run.status}`} aria-hidden />
                     <span className={run.status === "failed" ? "bad-text" : ""}>{STATUS[run.status]}</span>
@@ -219,26 +224,29 @@ export function Panel({
                       {SOURCE[run.source] ? ` · ${SOURCE[run.source]}` : ""}
                     </span>
                     <span className="grow" />
-                    <button className="link" onClick={() => setShownRun(null)}>
-                      Hide
-                    </button>
+                    {!back && (
+                      <button className="link" onClick={() => setShownRun(null)}>
+                        Hide
+                      </button>
+                    )}
                   </div>
                 )}
-                {!live && run.status !== "failed" && Object.keys(run.params).length > 0 && <div className="run-with muted small">With {fmtParams(run.params, script.params)}</div>}
+                {!isLive(run) && run.status !== "failed" && Object.keys(run.params).length > 0 && <div className="run-with muted small">With {fmtParams(run.params, script.params)}</div>}
                 <RunOutput
                   key={run.id}
                   run={run}
                   onAnswer={(id, v) => api.answer(run.id, id, v).catch((e) => setMsg({ text: e.message, tone: "bad" }))}
                   tech={run.status === "failed" && Object.keys(run.params).length ? [`With ${fmtParams(run.params, script.params)}`] : []}
                   footer={
-                    (run.status === "failed" || shownIsOld) && (
+                    (run.status === "failed" || isOld(run)) && (
                       <div className="row wrap after-run">
-                        {shownIsOld && (
+                        {isOld(run) && (
                           <button
                             onClick={() => {
                               const before = values;
                               setValues({ ...values, ...run.params });
                               setMsg({ text: "Filled the form with this run's values.", tone: "note", undo: () => setValues(before) });
+                              if (back) setTab("run");
                             }}
                           >
                             Use these values
@@ -255,6 +263,8 @@ export function Panel({
                 />
               </section>
   );
+
+  const output = run && result(run);
 
   return (
     // The panel carries the script's colour on its icon tile.
@@ -308,7 +318,10 @@ export function Panel({
             aria-controls={`panel-${id}`}
             tabIndex={tab === id ? 0 : -1}
             className={tab === id ? "on" : ""}
-            onClick={() => setTab(id)}
+            onClick={() => {
+              setTab(id);
+              if (id === "history") setHistRun(null);
+            }}
             onKeyDown={(e) => {
               const order: Tab[] = ["run", "history", "schedule"];
               const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
@@ -358,17 +371,17 @@ export function Panel({
                     <div className="muted small clip">{params.map(([k, spec]) => `${labelOf(k, spec)} ${fmtValue(spec, live.params[k])}`).join(" · ")}</div>
                   )}
                 </div>
-                <button className="stop" onClick={() => api.stop(live.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
-                  Stop
+                <button className="ghost stop" onClick={() => api.stop(live.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
+                  Stop run
                 </button>
               </div>
             ) : (
               <>
                 {prefilled && (
                   <p className="muted small prefill">
-                    Filled in from the last run.{" "}
+                    Using the last run's values ·{" "}
                     <button className="link" onClick={() => setValues(defaults(script.params))}>
-                      Clear
+                      Reset
                     </button>
                   </p>
                 )}
@@ -423,8 +436,17 @@ export function Panel({
 
         {tab === "history" && (
           <div role="tabpanel" id="panel-history" aria-labelledby="tab-history">
-            {history.length === 0 && <p className="muted small">No runs yet.</p>}
-            {groupByDay(history.map((h) => runs[h.id] ?? h)).map(([day, rows]) => (
+            {histRun && (
+              <>
+                <button className="ib back-link hist-back" onClick={() => setHistRun(null)}>
+                  <ChevronLeft size={18} aria-hidden />
+                  All runs
+                </button>
+                {runs[histRun] ? result(runs[histRun]!, () => setHistRun(null)) : <p className="muted small">Loading…</p>}
+              </>
+            )}
+            {!histRun && history.length === 0 && <p className="muted small">No runs yet.</p>}
+            {!histRun && groupByDay(history.map((h) => runs[h.id] ?? h)).map(([day, rows]) => (
               <section key={day} className="hist-day">
                 <h3>{day}</h3>
                 <ul className="hist">
@@ -436,11 +458,8 @@ export function Panel({
                     return (
                       <li key={h.id}>
                         <button
-                          className={`hist-row ${h.id === runId ? "on" : ""}`}
-                          onClick={() => {
-                            setShownRun(h.id);
-                            setTab("run");
-                          }}
+                          className="hist-row"
+                          onClick={() => setHistRun(h.id)}
                         >
                           <span className={`dot ${h.status}`} aria-hidden />
                           <span className="hist-main">

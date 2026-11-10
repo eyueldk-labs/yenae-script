@@ -162,7 +162,7 @@ export function NewScriptDialog({
             onChange={(e) => setWhat(e.target.value)}
           />
           {agent ? (
-            <div className="hint">It gets written for you in a new window. This takes a minute or two.</div>
+            <div className="hint">{agent.name} writes it for you. It opens in a new window and takes a minute or two.</div>
           ) : (
             state.harnesses.length === 0 && (
               <div className="hint">This makes an empty script. Install Claude Code, Codex, Gemini CLI or OpenCode to have one written for you.</div>
@@ -212,6 +212,9 @@ export function NewScriptDialog({
           </div>
         )}
         <div className="row wrap end dialog-actions">
+          {!busy && (!fileName || (!!agent && !what.trim())) && (
+            <span className="muted small grow">{!fileName ? "Add a name to continue." : "Say what it should do to continue."}</span>
+          )}
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
           </button>

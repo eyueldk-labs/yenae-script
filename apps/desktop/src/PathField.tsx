@@ -67,8 +67,8 @@ export function PathField({
     <div className={`path-box ${invalid ? "invalid" : ""}`} title={value}>
       <Icon size={18} className="path-icon" aria-hidden />
       <span className="path-text">
+        {/* The name is enough to recognise it; the full path is in the tooltip. */}
         <span className="path-name">{lastPart(value)}</span>
-        <span className="path-full">{value}</span>
       </span>
       <button type="button" id={id} className="small-btn" aria-describedby={describedBy} aria-label={`Change ${noun}: ${value}`} onClick={choose}>
         Change

@@ -202,7 +202,8 @@ export function App() {
   }
   if (!state || !api) return <div className="center muted">Loading…</div>;
 
-  const alerts = attention.needs.filter((n) => !dismissed.has(n.run) && n.id !== selected);
+  // The script whose panel is open keeps its row (marked as open) so nothing jumps.
+  const alerts = attention.needs.filter((n) => !dismissed.has(n.run));
 
 
   return (
@@ -277,14 +278,18 @@ export function App() {
             // until "more" is pressed. An alert for the script already open is hidden (the panel says it).
             <ul className="alerts" aria-label="Needs you">
               {(allAlerts || alerts.length <= 2 ? alerts : alerts.slice(0, 1)).map((n) => (
-                <li key={n.run} className={`alert ${n.kind}`}>
+                <li key={n.run} className={`alert ${n.kind} ${n.id === selected ? "current" : ""}`} aria-current={n.id === selected || undefined}>
                   <span className={`dot ${n.kind}`} aria-hidden />
                   <span className="grow alert-text">
                     <b>{n.name}</b> {n.kind === "waiting" ? "is waiting for your answer" : `failed ${n.when}`}
                   </span>
-                  <button className={n.kind === "waiting" ? "primary small-btn" : "small-btn"} onClick={() => open(n.id, { run: n.run })}>
-                    {n.kind === "waiting" ? "Answer" : "See why"}
-                  </button>
+                  {n.id === selected ? (
+                    <span className="muted small open-tag">Open</span>
+                  ) : (
+                    <button className={n.kind === "waiting" ? "primary small-btn" : "small-btn"} onClick={() => open(n.id, { run: n.run })}>
+                      {n.kind === "waiting" ? "Answer" : "See why"}
+                    </button>
+                  )}
                   <button className="ib" aria-label={`Dismiss ${n.name}`} title="Dismiss" onClick={() => setDismissed((d) => new Set(d).add(n.run))}>
                     <X size={16} aria-hidden />
                   </button>

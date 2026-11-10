@@ -235,7 +235,6 @@ export function Home({
             <span className={`tile-icon hue-${hueOf(s.id)}`}>
               <Glyph script={s} size={19} />
             </span>
-            {b && <Sticker badge={b} />}
           </span>
           <span className="card-name">
             {s.name}
@@ -248,7 +247,7 @@ export function Home({
             values={sched ? { ...defaults(s.params), ...sched.params } : startValues(s, state.lastRuns[id]).values}
             last={last(id)}
             every={sched?.every}
-            flagged={!!b}
+            badge={b}
           />
         </button>
         <span className="card-actions">
@@ -325,28 +324,22 @@ export function Home({
           onTileDrop(f.id, true, false, zone(e, false));
         }}
       >
-        <span className="folder-tab" aria-hidden />
-        <span className="card-main">
-          <span className="card-top">
-            <span className="tile-icon folder-icon">
-              <FolderOpen size={19} aria-hidden />
+        <span className="tile-icon folder-icon" title={worst ? worst.text : undefined}>
+          <FolderOpen size={19} aria-hidden />
+          {worst && <span className={`dot ${worst.kind === "error" ? "failed" : worst.kind} folder-dot`} aria-hidden />}
+        </span>
+        <span className="folder-text">
+          <span className="card-name">{f.name}</span>
+          <span className="card-sub">
+            {kids.length} script{kids.length === 1 ? "" : "s"}
+          </span>
+        </span>
+        <span className="kids" aria-hidden>
+          {kids.slice(0, 3).map((k) => (
+            <span key={k.id} className={`kid hue-${hueOf(k.id)}`}>
+              <Glyph script={k} size={12} />
             </span>
-            {worst ? (
-              <Sticker badge={worst} />
-            ) : (
-              <span className="kids" aria-hidden>
-                {kids.slice(0, 4).map((k) => (
-                  <span key={k.id} className={`kid hue-${hueOf(k.id)}`}>
-                    <Glyph script={k} size={12} />
-                  </span>
-                ))}
-              </span>
-            )}
-          </span>
-          <span className="card-name">
-            {f.name} <span className="count">{kids.length}</span>
-          </span>
-          <span className="card-sub">{kids.map((k) => k.name).join(", ")}</span>
+          ))}
         </span>
       </button>
     );
@@ -559,8 +552,14 @@ export function Home({
               <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
               {state.scripts.length > 1 && newFolderSpot}
             </div>
+            {/* Folders first, in their own short row, then loose scripts. */}
+            {shown.some((it) => it.type === "folder") && (
+              <div className="folders" data-tiles>
+                {shown.map((it) => (it.type === "folder" ? folderTile(it) : null))}
+              </div>
+            )}
             <div className="tiles" data-tiles>
-              {shown.map((it) => (it.type === "folder" ? folderTile(it) : scriptTile(it.id, "items")))}
+              {shown.map((it) => (it.type === "folder" ? null : scriptTile(it.id, "items")))}
             </div>
           </section>
           </>
@@ -621,18 +620,6 @@ function InputChip({ name, spec, value }: { name: string; spec: ParamSpec; value
   );
 }
 
-/** The pill in a card's corner that says, in a word or two, what needs attention. */
-function Sticker({ badge }: { badge: Exclude<Badge, null> }) {
-  const word = { failed: "Failed", error: "Broken", waiting: "Needs you", running: "Running" }[badge.kind];
-  const dot = badge.kind === "error" ? "failed" : badge.kind;
-  return (
-    <span className={`sticker ${badge.kind}`} title={badge.text}>
-      <span className={`dot ${dot}`} aria-hidden />
-      {word}
-    </span>
-  );
-}
-
 /** "Asks for Folder and Pattern", for a script with no description. */
 function asksFor(s: Script) {
   const names = Object.entries(s.params).map(([k, p]) => labelOf(k, p));
@@ -640,13 +627,17 @@ function asksFor(s: Script) {
   return `Asks for ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}`;
 }
 
-/** The bottom of a card: two inputs (then "+2 more") and one quiet line on how it last went. */
-function CardFoot({ script, values, last, every, flagged }: { script: Script; values: Record<string, unknown>; last: RunSummary | null; every?: string; flagged: boolean }) {
+/** The bottom of a card: two inputs (then "+2 more"), then one line every card has: how it is doing, and its schedule. */
+function CardFoot({ script, values, last, every, badge }: { script: Script; values: Record<string, unknown>; last: RunSummary | null; every?: string; badge: Badge }) {
   const params = Object.entries(script.params);
   const rest = params.slice(2);
   const done = last && !isLive(last) ? last : null;
-  // The status pill already says Failed or Needs you, so the line below doesn't repeat it.
-  const outcome = done && !flagged ? lastLabel(done) : "";
+  // Status is a dot and a few words, the same on every card; the strip at the top is the loud one.
+  const status = badge
+    ? { kind: badge.kind === "error" ? "failed" : badge.kind, text: badge.kind === "waiting" ? "Waiting for your answer" : badge.kind === "running" ? "Running now" : badge.text }
+    : done
+      ? { kind: done.status === "ok" ? "ok" : "idle", text: lastLabel(done) }
+      : { kind: "idle", text: "Not run yet" };
   return (
     <>
       {params.length > 0 && (
@@ -670,14 +661,17 @@ function CardFoot({ script, values, last, every, flagged }: { script: Script; va
             .join(" · ")}
         </span>
       )}
-      <span className={`card-last ${done && Date.now() - (done.endedAt ?? 0) < 8000 ? "fresh" : ""}`} key={done?.id}>
+      <span className={`card-last status-${status.kind} ${done && Date.now() - (done.endedAt ?? 0) < 8000 ? "fresh" : ""}`} key={done?.id}>
+        <span className={`dot ${status.kind}`} aria-hidden />
+        <span className="card-status" title={done ? new Date(done.startedAt).toLocaleString() : undefined}>
+          {status.text}
+        </span>
         {every && (
           <span className="every-tag">
-            <Clock size={12} aria-hidden /> Every {fmtEveryShort(every)}
-            {outcome && " · "}
+            {" · "}
+            <Clock size={12} aria-hidden /> every {fmtEveryShort(every)}
           </span>
         )}
-        {outcome ? <span title={new Date(done!.startedAt).toLocaleString()}>{outcome}</span> : !every && !last && "Not run yet"}
       </span>
     </>
   );

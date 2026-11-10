@@ -69,20 +69,37 @@ export function RunOutput({
     );
   }
 
-  // Stack traces fold away; the message above them reads as a sentence.
+  // Stack traces fold away; the message above them reads as a sentence. Once a run ends, the
+  // status line ("Done in 17 ms") folds away too: the header above already says how it went.
   const stack = run.events.flatMap((e) => (e.t === "err" ? e.text.split("\n").filter((l) => /^\s+at\s/.test(l)) : []));
+  const endIdx = live ? -1 : run.events.map((e) => e.t).lastIndexOf("sys");
+  const endLine = endIdx >= 0 ? [(run.events[endIdx] as { text: string }).text] : [];
+  // A finished run that showed results leads with them; its printed log is one click away.
+  const hasShow = !live && run.events.some((e) => e.t === "show");
+  if (hasShow) {
+    const log = run.events.flatMap((e) => (e.t === "out" || e.t === "err" || e.t === "sys" ? [e.text.replace(/\n$/, "")] : []));
+    return (
+      <div className="output">
+        {run.events.map((e, i) => (e.t === "show" || e.t === "ask" ? <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} /> : null))}
+        <details className="tech">
+          <summary>Show output</summary>
+          <pre className="log">{[...log, ...tech].join("\n")}</pre>
+        </details>
+        {footer}
+        <div ref={end} />
+      </div>
+    );
+  }
 
   return (
     <div className={`output ${live ? "live" : ""}`}>
       {run.events.length === 0 && run.status === "running" && <div className="muted">Starting…</div>}
-      {run.events.map((e, i) => (
-        <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />
-      ))}
+      {run.events.map((e, i) => (i === endIdx ? null : <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />))}
       {pending && <AskCard key={pending.id} req={pending.request} onAnswer={(v) => onAnswer(pending.id, v)} />}
-      {!live && (stack.length > 0 || tech.length > 0) && (
+      {!live && (stack.length > 0 || tech.length > 0 || endLine.length > 0) && (
         <details className="tech">
           <summary>Technical details</summary>
-          <pre className="log">{[...tech, ...stack].join("\n")}</pre>
+          <pre className="log">{[...endLine, ...tech, ...stack].join("\n")}</pre>
         </details>
       )}
       {!live && footer}
