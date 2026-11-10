@@ -23,7 +23,7 @@ export function RunOutput({
   const sawLive = useRef(live);
   if (live) sawLive.current = true;
   useEffect(() => {
-    const scroller = end.current?.closest(".main");
+    const scroller = end.current?.closest(".panel-body");
     if (!scroller) return;
     const onScroll = () => (following.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120);
     scroller.addEventListener("scroll", onScroll, { passive: true });

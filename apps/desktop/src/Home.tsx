@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Star } from "lucide-react";
-import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
+import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script, State } from "./api";
 import { FolderIcon, ScriptIcon } from "./icons";
 import { Menu, type MenuEntry } from "./Menu";
-import { labelOf } from "./Form";
+import { fmtValue, labelOf } from "./Form";
 import { lastLabel, isLive } from "./fmt";
 import { folderOf, folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, type Target } from "./layoutOps";
 
@@ -37,7 +37,6 @@ export function Home({
   onEditWith,
   query,
   view,
-  arranging,
 }: {
   api: Api;
   state: State;
@@ -50,7 +49,6 @@ export function Home({
   onEditWith: (id: string) => void;
   query: string;
   view: "grid" | "list";
-  arranging: boolean;
 }) {
   const byId = useMemo(() => new Map(state.scripts.map((s) => [s.id, s])), [state.scripts]);
   const [openFolder, setOpenFolder] = useState<string | null>(null);
@@ -87,8 +85,12 @@ export function Home({
   // ---- hover preview ----
   const hover = (id: string | null, el?: HTMLElement) => {
     clearTimeout(peekTimer.current);
-    if (!id || arranging || drag.current) return setPeek(null);
-    peekTimer.current = window.setTimeout(() => setPeek({ id, rect: el!.getBoundingClientRect() }), 450);
+    if (!id || drag.current) return setPeek(null);
+    peekTimer.current = window.setTimeout(() => el!.isConnected && setPeek({ id, rect: el!.getBoundingClientRect() }), 450);
+  };
+  // Keyboard focus shows the same preview, so details aren't mouse-only.
+  const focusPeek = (id: string, el: HTMLElement) => {
+    if (el.matches(":focus-visible")) hover(id, el);
   };
 
   // ---- drag and drop ----
@@ -168,7 +170,7 @@ export function Home({
     ];
   };
   const folderMenu = (fid: string): MenuEntry[] => [
-    { label: openFolder === fid ? "Close" : "Open", onSelect: () => setOpenFolder(openFolder === fid ? null : fid) },
+    { label: openFolder === fid ? "Close" : "Open", onSelect: () => toggleFolder(openFolder === fid ? null : fid, fid) },
     {
       label: "Rename",
       onSelect: () => {
@@ -192,11 +194,17 @@ export function Home({
         className={`tile ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
         data-tile
         data-id={id}
+        data-where={where}
         draggable
         aria-label={[s.name, b?.text, layout.favourites.includes(id) && !inFav ? "favourite" : ""].filter(Boolean).join(", ")}
         aria-description={s.description}
         aria-current={selected === id ? "true" : undefined}
-        onClick={(e) => !arranging && onOpen(id, e.detail === 0)}
+        onClick={(e) => {
+          hover(null);
+          onOpen(id, e.detail === 0);
+        }}
+        onFocus={(e) => focusPeek(id, e.currentTarget)}
+        onBlur={() => hover(null)}
         onContextMenu={(e) => {
           e.preventDefault();
           hover(null);
@@ -207,6 +215,9 @@ export function Home({
             e.preventDefault();
             const r = e.currentTarget.getBoundingClientRect();
             setMenu({ x: r.left + 20, y: r.bottom, id });
+          } else if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+            e.preventDefault();
+            nudge(id, where, e.key === "ArrowLeft" ? -1 : 1);
           } else tileKeys(e);
         }}
         onMouseEnter={(e) => hover(id, e.currentTarget)}
@@ -254,10 +265,11 @@ export function Home({
         key={f.id}
         className={`tile folder ${openFolder === f.id ? "open" : ""} ${d ? `drop-${d}` : ""}`}
         data-tile
+        data-id={f.id}
         draggable
         aria-expanded={openFolder === f.id}
         aria-label={`${f.name} folder, ${kids.length} script${kids.length === 1 ? "" : "s"}${worst ? `, ${worst.text.toLowerCase()}` : ""}`}
-        onClick={() => setOpenFolder(openFolder === f.id ? null : f.id)}
+        onClick={() => toggleFolder(openFolder === f.id ? null : f.id, f.id)}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY, id: f.id, folder: true });
@@ -299,7 +311,36 @@ export function Home({
     );
   };
 
-  // Arrow keys move between tiles; Up and Down move a row.
+  /** Put focus back on a tile after a re-render (the same copy, when a favourite shows twice). */
+  const refocus = (id: string, where?: string) =>
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(`.home [data-tile][data-id="${CSS.escape(id)}"]${where ? `[data-where="${CSS.escape(where)}"]` : ""}`)?.focus(),
+    );
+  const toggleFolder = (id: string | null, focusId?: string) => {
+    setOpenFolder(id);
+    if (focusId) refocus(focusId);
+  };
+
+  // Alt+Left/Right moves a script one place within its row of tiles (favourites, a folder, or the top level).
+  const nudge = (id: string, where: string, d: -1 | 1) => {
+    let next: Layout = layout;
+    if (where === "fav") {
+      const i = layout.favourites.indexOf(id);
+      const ref = layout.favourites[i + d];
+      if (!ref) return;
+      next = moveFavourite(layout, id, ref, d < 0 ? "before" : "after");
+    } else {
+      const f = folderOf(layout, id);
+      const list = f ? f.scripts : layout.items.map((i) => i.id);
+      const ref = list[list.indexOf(id) + d];
+      if (!ref) return;
+      next = moveScript(layout, id, { kind: d < 0 ? "before" : "after", ref } as Target).layout;
+    }
+    onLayout(next);
+    refocus(id, where);
+  };
+
+  // Arrow keys move to the nearest tile in that direction, across sections and folders.
   // Columns come from the catalog's own width, which stays put while folders open and close.
   const root = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(6);
@@ -316,19 +357,26 @@ export function Home({
     return () => ro.disconnect();
   }, []);
   const tileKeys = (e: React.KeyboardEvent) => {
-    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: cols, ArrowUp: -cols }[e.key];
-    if (!step) return;
-    const scope = (e.currentTarget as HTMLElement).closest("[data-tiles]");
-    const all = [...(scope ?? document).querySelectorAll<HTMLElement>("[data-tile]")];
-    const i = all.indexOf(e.currentTarget as HTMLElement);
-    const next = all[i + step];
-    if (next) {
-      e.preventDefault();
-      next.focus();
-    } else if (e.key === "ArrowUp" && !(scope?.previousElementSibling)) {
-      e.preventDefault();
-      document.querySelector<HTMLElement>(".search input")?.focus();
+    const dir = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] }[e.key];
+    if (!dir) return;
+    const from = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const cx = from.left + from.width / 2, cy = from.top + from.height / 2;
+    let best: HTMLElement | null = null;
+    let bestScore = Infinity;
+    for (const t of document.querySelectorAll<HTMLElement>(".home [data-tile]")) {
+      if (t === e.currentTarget) continue;
+      const r = t.getBoundingClientRect();
+      const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+      const along = dx * dir[0]! + dy * dir[1]!;
+      if (along <= 4) continue;
+      const across = Math.abs(dir[0] ? dy : dx);
+      // Stay in the row (or column) when there is something there; otherwise the nearest.
+      const score = along + across * 3;
+      if (score < bestScore) (bestScore = score), (best = t);
     }
+    e.preventDefault();
+    if (best) best.focus();
+    else if (e.key === "ArrowUp") document.querySelector<HTMLElement>(".search input")?.focus();
   };
 
   // ---- the open folder's drawer, placed after the row that holds the folder ----
@@ -400,12 +448,23 @@ export function Home({
   // ---- views ----
   const noScripts = state.scripts.length === 0;
   const favs = layout.favourites.filter((id) => byId.has(id));
-  // In the details view a favourite is listed once, under Favourites.
-  const loose = layout.items.filter((i) => i.type === "script" && !favs.includes(i.id)).map((i) => i.id);
+  // Favourites work like a dock in both views: a shortcut, while the script stays where it is.
+  const loose = layout.items.filter((i) => i.type === "script").map((i) => i.id);
+  const hasFolders = layout.items.some((i) => i.type === "folder");
   const preview = peek && byId.get(peek.id);
 
   return (
-    <div ref={root} className={`home ${arranging ? "arranging" : ""}`}>
+    <div
+      ref={root}
+      className="home"
+      onKeyDown={(e) => {
+        // Escape closes an open folder before anything else.
+        if (e.key === "Escape" && openFolder && !renaming) {
+          e.stopPropagation();
+          toggleFolder(null, openFolder);
+        }
+      }}
+    >
       {noScripts ? (
         <div className="empty">
           <p>No scripts yet.</p>
@@ -438,8 +497,7 @@ export function Home({
           )}
           {layout.items
             .filter((i): i is Folder => i.type === "folder")
-            .map((f) => ({ f, ids: f.scripts.filter((id) => !favs.includes(id)) }))
-            .filter((x) => x.ids.length)
+            .map((f) => ({ f, ids: f.scripts }))
             .map(({ f, ids }) => (
               <section key={f.id}>
                 <h2 className="sec">{f.name}</h2>
@@ -448,30 +506,31 @@ export function Home({
             ))}
           {loose.length > 0 && (
             <section>
-              <h2 className="sec">{favs.length || layout.items.some((i) => i.type === "folder") ? "Other scripts" : "Scripts"}</h2>
+              <h2 className="sec">{favs.length || hasFolders ? "Other scripts" : "Scripts"}</h2>
               <ScriptList ids={loose} {...{ byId, layout, onLayout, selected, onOpen, last, badge, folderName }} />
             </section>
           )}
         </>
       ) : (
         <>
-          {(favs.length > 0 || arranging) && (
-            <section {...dropZoneProps("fav")}>
-              <h2 className="sec">
-                <Star size={13} fill="currentColor" className="fav" /> Favourites
-              </h2>
-              {favs.length ? (
-                <div className="tiles" data-tiles>
-                  {favs.map((id) => scriptTile(id, "fav"))}
-                </div>
-              ) : (
-                <p className="drop-hint muted small">Drag a script here to make it a favourite.</p>
-              )}
-            </section>
-          )}
+          <section {...dropZoneProps("fav")}>
+            <h2 className="sec">
+              <Star size={13} fill="currentColor" className="fav" /> Favourites
+            </h2>
+            {favs.length ? (
+              <div className="tiles" data-tiles>
+                {favs.map((id) => scriptTile(id, "fav"))}
+              </div>
+            ) : (
+              <p className="drop-hint muted small">Star a script, or drag one here.</p>
+            )}
+          </section>
           <section {...dropZoneProps("items")}>
-            {(favs.length > 0 || arranging) && <h2 className="sec">All scripts</h2>}
+            <h2 className="sec">All scripts</h2>
             {itemsGrid(layout.items)}
+            {!hasFolders && state.scripts.length > 1 && (
+              <p className="tip muted small">Drag a script onto another to make a folder. Right-click a script for more.</p>
+            )}
           </section>
         </>
       )}
@@ -498,6 +557,19 @@ export function Home({
   );
 }
 
+/** One input as a chip: its label, and its default when it has one ("Times 3", "Mood calm"). */
+function InputChip({ name, spec }: { name: string; spec: ParamSpec }) {
+  const d = spec.default;
+  const shown = d === undefined || d === "" || d === null ? "" : spec.kind === "boolean" ? (d ? "on" : "off") : fmtValue(spec, d);
+  return (
+    <span className="chip" title={[spec.description, spec.optional ? "Optional" : "Required"].filter(Boolean).join(". ")}>
+      {labelOf(name, spec)}
+      {shown && <span className="chip-val"> {shown}</span>}
+      {spec.optional && <span className="chip-val">?</span>}
+    </span>
+  );
+}
+
 /** The hover preview: what the script does, what it takes, how it last went. */
 function Peek({ script, rect, last, every, folder }: { script: Script; rect: DOMRect; last: RunSummary | null; every?: string; folder?: string }) {
   const params = Object.entries(script.params);
@@ -514,7 +586,7 @@ function Peek({ script, rect, last, every, folder }: { script: Script; rect: DOM
       <div className="peek-name">{script.name}</div>
       {script.description && <div className="muted small">{script.description}</div>}
       <div className="chips">
-        {params.length ? params.map(([k, p]) => <span key={k} className="chip">{labelOf(k, p)}</span>) : <span className="muted small">No inputs</span>}
+        {params.length ? params.map(([k, p]) => <InputChip key={k} name={k} spec={p} />) : <span className="muted small">No inputs</span>}
       </div>
       <div className="peek-foot small">
         {last ? <span className={last.status === "failed" ? "bad-text" : last.status === "waiting" ? "warn-text" : ""}>{lastLabel(last)}</span> : <span className="muted">Never run</span>}
@@ -567,7 +639,7 @@ function ScriptList({
                 {s.description && <span className="row-desc">{s.description}</span>}
               </span>
               <span className="chips">
-                {params.length ? params.map(([k, p]) => <span key={k} className="chip">{labelOf(k, p)}</span>) : <span className="muted small">No inputs</span>}
+                {params.length ? params.map(([k, p]) => <InputChip key={k} name={k} spec={p} />) : <span className="muted small">No inputs</span>}
               </span>
               <span className="row-state small">
                 {b?.kind === "waiting" ? (

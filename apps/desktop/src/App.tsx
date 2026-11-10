@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ellipsis, LayoutGrid, List, Plus } from "lucide-react";
-import { Api, connect, isTauri, type Layout, type RunDetail, type State } from "./api";
+import { Api, connect, isTauri, type Layout, type RunDetail, type RunEvent, type State } from "./api";
 import { defaults, missing } from "./Form";
 import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
 import { Home, attentionOf } from "./Home";
@@ -23,7 +23,6 @@ export function App() {
   const [editWith, setEditWith] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "list">(() => store.get("view", "grid"));
-  const [arranging, setArranging] = useState(false);
   const [menu, setMenu] = useState<null | { x: number; y: number; which: "more" | "needs" }>(null);
   const [announce, setAnnounce] = useState("");
   const [, setTick] = useState(0);
@@ -50,7 +49,12 @@ export function App() {
         const next = { ...prev };
         // A state fetched while a run was live can arrive after the run's "finished"
         // message; never let it turn a finished run back into a live one.
-        for (const r of s.live) if (!prev[r.id] || isLive(prev[r.id]!)) next[r.id] = r;
+        // A snapshot can also be older than output already streamed in: keep the longer log.
+        for (const r of s.live) {
+          const had = prev[r.id];
+          if (had && !isLive(had)) continue;
+          next[r.id] = had && had.events.length > r.events.length ? { ...r, events: had.events } : r;
+        }
         return next;
       });
       setError(null);
@@ -59,9 +63,18 @@ export function App() {
     }
   }, [api]);
 
+  // Output that arrives before its run's record is kept here until the record does.
+  const early = useRef<Record<string, RunEvent[]>>({});
+
   useEffect(() => {
     if (!api) return;
     refresh();
+    // A finished run's stored events are the full truth: replace whatever was streamed.
+    const settle = (id: string) =>
+      api
+        .getRun(id)
+        .then((r) => setRuns((p) => ({ ...p, [id]: r })))
+        .catch(() => {});
     return api.listen(
       (m) => {
         if (m.type === "state") refresh();
@@ -70,13 +83,19 @@ export function App() {
             const before = prev[m.run.id];
             // A new or finished run changes schedules and last results: fetch them again.
             if (!before || (isLive(before) && !isLive(m.run))) queueMicrotask(refresh);
-            return { ...prev, [m.run.id]: { ...(before ?? { events: [] }), ...m.run } as RunDetail };
+            if (before && isLive(before) && !isLive(m.run)) queueMicrotask(() => settle(m.run.id));
+            const events = before?.events.length ? before.events : (early.current[m.run.id] ?? []);
+            delete early.current[m.run.id];
+            return { ...prev, [m.run.id]: { ...before, ...m.run, events } as RunDetail };
           });
           if (m.run.status === "waiting" && m.run.pendingAsk) setAnnounce(`Waiting for you: ${m.run.pendingAsk.request.message}`);
         } else if (m.type === "event")
           setRuns((prev) => {
             const r = prev[m.runId];
-            if (!r) return prev;
+            if (!r) {
+              (early.current[m.runId] ??= []).push(m.event);
+              return prev;
+            }
             const events = r.events.slice();
             const last = events[events.length - 1];
             // The engine merges consecutive output chunks; mirror that here.
@@ -159,10 +178,12 @@ export function App() {
         search.current?.focus();
         search.current?.select();
       } else if (e.key === "Escape") {
-        if (arranging) setArranging(false);
-        else if (typing && t !== search.current) t.blur();
+        if (typing && t !== search.current) t.blur();
         else if (selected) close();
-        else if (query) setQuery("");
+        else if (query) {
+          setQuery("");
+          search.current?.focus();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -185,15 +206,7 @@ export function App() {
   return (
     <div className={`app ${script ? "has-panel" : ""} ${wide ? "wide" : ""}`}>
       <div className="catalog">
-        {arranging ? (
-          <div className="bar arrange-bar">
-            <b>Arrange</b>
-            <span className="muted small grow">Drag to reorder. Drop a script on another to make a folder, or onto Favourites.</span>
-            <button className="primary" onClick={() => setArranging(false)}>
-              Done
-            </button>
-          </div>
-        ) : (
+        {(
           <div className="bar">
             <div className="search">
               <input
@@ -201,7 +214,7 @@ export function App() {
                 autoFocus
                 type="search"
                 aria-label="Search scripts"
-                placeholder={`Search scripts  ${MOD}+K`}
+                placeholder="Search scripts"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
@@ -220,19 +233,25 @@ export function App() {
                   }
                 }}
               />
+              {!query && (
+                <kbd className="search-key" aria-hidden>
+                  {MOD}+K
+                </kbd>
+              )}
             </div>
             <span className="grow" />
             {(needCount > 0 || attention.running.length > 0) && (
               <button
-                className={`pill ${needCount ? "needs" : ""}`}
+                className={`pill ${attention.needs.some((n) => n.kind === "failed") ? "needs" : ""}`}
                 aria-haspopup="menu"
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   setMenu({ x: r.left, y: r.bottom + 4, which: "needs" });
                 }}
               >
-                <span className={`dot ${needCount ? "failed" : "running"}`} aria-hidden />
-                {needCount ? `${needCount} need${needCount === 1 ? "s" : ""} you` : `${attention.running.length} running`}
+                <span className={`dot ${attention.needs.some((n) => n.kind === "failed") ? "failed" : needCount ? "waiting" : "running"}`} aria-hidden />
+                {needCount ? needCount : attention.running.length}
+                <span className="pill-text">{needCount ? ` need${needCount === 1 ? "s" : ""} you` : " running"}</span>
               </button>
             )}
             {!online && (
@@ -277,7 +296,6 @@ export function App() {
             onEditWith={(id) => setEditWith(id)}
             query={query}
             view={view}
-            arranging={arranging}
           />
         </main>
       </div>
@@ -307,7 +325,6 @@ export function App() {
           onClose={() => setMenu(null)}
           items={[
             { label: "New script…", onSelect: () => setDialog("new") },
-            { label: "Arrange", onSelect: () => setArranging(true) },
             "separator",
             { label: "Settings", onSelect: () => setDialog("settings") },
           ]}
@@ -333,7 +350,7 @@ export function App() {
       </div>
       {editWith && (
         <EditWithDialog
-          title="Edit with agent"
+          title={`Edit ${state.scripts.find((s) => s.id === editWith)?.name ?? "script"}`}
           harnesses={state.harnesses}
           onClose={() => setEditWith(null)}
           onSubmit={(h, what) => {

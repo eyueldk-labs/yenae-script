@@ -100,7 +100,10 @@ export function Panel({
   // Load a finished run's output when it's shown but not in memory.
   useEffect(() => {
     if (runId && (!runs[runId] || (runs[runId]!.events.length === 0 && !isLive(runs[runId]!)))) {
-      api.getRun(runId).then((r) => setRuns((p) => ({ ...p, [r.id]: r }))).catch(() => {});
+      api
+        .getRun(runId)
+        .then((r) => setRuns((p) => (p[r.id] && p[r.id]!.events.length > r.events.length ? p : { ...p, [r.id]: r })))
+        .catch(() => {});
     }
   }, [runId]);
 
@@ -117,12 +120,16 @@ export function Panel({
     setMsg(null);
     try {
       const { id } = await api.run(script.id, params);
+      // The engine's "run" message usually arrives first; if not, a placeholder holds the
+      // spot and the first message fills it in (keeping any output already streamed).
       setRuns((p) => ({
         ...p,
         [id]: p[id] ?? { id, script: script.id, params, source: "manual", status: "running", exitCode: null, error: null, startedAt: Date.now(), endedAt: null, events: [] },
       }));
       setShownRun(id);
       setTab("run");
+      // The form is replaced by the live bar: keep focus on something real (Stop).
+      requestAnimationFrame(() => root.current?.querySelector<HTMLElement>(".live-bar .stop")?.focus());
     } catch (e: any) {
       setMsg({ text: e.message, tone: "bad" });
     }

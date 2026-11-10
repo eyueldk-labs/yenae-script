@@ -36,7 +36,8 @@ export function SchedulePanel({
   const params = Object.entries(script.params);
   const keys = params.map(([k]) => k);
   const pick = (v: Record<string, unknown>) => JSON.stringify(keys.map((k) => v[k] ?? null));
-  const formDiffers = on && !editing && params.length > 0 && pick(schedule!.params) !== pick(values);
+  // Offer the Run tab's values only when they are different and complete.
+  const formDiffers = on && !editing && params.length > 0 && pick(schedule!.params) !== pick(values) && missing(script.params, values).length === 0;
   const everyChanged = on && every.trim() !== schedule!.every;
 
   const save = async (enabled: boolean, useValues: Record<string, unknown>, interval = every.trim()) => {

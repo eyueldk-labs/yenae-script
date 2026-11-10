@@ -29,23 +29,25 @@ export function hueOf(id: string) {
 }
 
 /** A script's tile: its icon, or the first letter of its name, on its colour. */
-export function ScriptIcon({ script, size = 52 }: { script: Pick<Script, "id" | "name" | "icon">; size?: number }) {
+export function ScriptIcon({ script, size = 52, dense = false }: { script: Pick<Script, "id" | "name" | "icon">; size?: number; dense?: boolean }) {
   const Icon = script.icon ? ICONS[script.icon] : undefined;
+  // Tiny tiles (inside a folder's icon) need a bigger glyph to be read at all.
+  const ratio = dense ? 0.66 : 0.48;
   return (
     <span className={`glyph hue-${hueOf(script.id)}`} style={{ width: size, height: size, borderRadius: Math.round(size / 4.2) }} aria-hidden>
-      {Icon ? <Icon size={Math.round(size * 0.48)} strokeWidth={1.8} /> : <span className="letter" style={{ fontSize: Math.round(size * 0.42) }}>{[...script.name.trim()][0]?.toUpperCase() ?? "?"}</span>}
+      {Icon ? <Icon size={Math.round(size * ratio)} strokeWidth={dense ? 2.2 : 1.8} /> : <span className="letter" style={{ fontSize: Math.round(size * (dense ? 0.6 : 0.42)) }}>{[...script.name.trim()][0]?.toUpperCase() ?? "?"}</span>}
     </span>
   );
 }
 
 /** A folder's tile: small versions of its first four scripts' icons. */
 export function FolderIcon({ scripts, size = 52 }: { scripts: Pick<Script, "id" | "name" | "icon">[]; size?: number }) {
-  const pad = Math.round(size / 8);
+  const pad = Math.round(size / 11);
   const mini = Math.floor((size - pad * 2 - 3) / 2);
   return (
     <span className="glyph folder-glyph" style={{ width: size, height: size, borderRadius: Math.round(size / 4.2), padding: pad }} aria-hidden>
       {scripts.slice(0, 4).map((s) => (
-        <ScriptIcon key={s.id} script={s} size={mini} />
+        <ScriptIcon key={s.id} script={s} size={mini} dense />
       ))}
     </span>
   );

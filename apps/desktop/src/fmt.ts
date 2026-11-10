@@ -26,7 +26,12 @@ export function fmtWhen(t: number) {
   if (s <= 5) return "now";
   if (s < 60) return `in ${s} s`;
   if (s < 3600) return `in ${Math.round(s / 60)} min`;
-  return `at ${new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const d = new Date(t);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 0) return `at ${time}`;
+  if (days === 1) return `tomorrow at ${time}`;
+  return `${d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} at ${time}`;
 }
 
 /** A time in the past: "just now", "4 min ago", "2 h ago", or the date. */
