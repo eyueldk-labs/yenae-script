@@ -136,7 +136,7 @@ export function Home({
       { label: "Open", onSelect: () => onOpen(id, true) },
       { label: state.lastRuns[id] ? "Run again" : "Run", hint: Object.keys(s.params).length ? "same values" : "", onSelect: () => onRun(id), disabled: !!s.error },
       { label: fav ? "Remove from favourites" : "Add to favourites", onSelect: () => onLayout(toggleFavourite(layout, id)) },
-      ...(agent ? [{ label: `Change with ${agent.name}…`, onSelect: () => onEditWith(id) }] : []),
+      ...(agent ? [{ label: "Change what it does…", onSelect: () => onEditWith(id) }] : []),
       "separator",
       { heading: "Move to folder" },
       ...folders.map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, id, f.id)) })),
@@ -237,7 +237,7 @@ export function Home({
           </span>
           <span className="card-name">
             {s.name}
-            {fav && !inFav && <Star size={12} fill="currentColor" className="fav name-star" aria-hidden />}
+            {fav && <Star size={13} fill="currentColor" className="fav name-star" aria-label="Favourite" />}
           </span>
           <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
           <CardFoot
@@ -246,6 +246,7 @@ export function Home({
             values={sched ? { ...defaults(s.params), ...sched.params } : startValues(s, state.lastRuns[id]).values}
             last={last(id)}
             every={sched?.every}
+            flagged={!!b}
           />
         </button>
         <span className="card-actions">
@@ -322,6 +323,7 @@ export function Home({
           onTileDrop(f.id, true, false, zone(e, false));
         }}
       >
+        <span className="folder-tab" aria-hidden />
         <span className="card-main">
           <span className="card-top">
             <span className="tile-icon folder-icon">
@@ -339,11 +341,10 @@ export function Home({
               </span>
             )}
           </span>
-          <span className="card-name">{f.name}</span>
-          <span className="card-sub">
-            Folder · {kids.length} script{kids.length === 1 ? "" : "s"}
+          <span className="card-name">
+            {f.name} <span className="count">{kids.length}</span>
           </span>
-          <span className="card-last">{kids.map((k) => k.name).join(", ")}</span>
+          <span className="card-sub">{kids.map((k) => k.name).join(", ")}</span>
         </span>
       </button>
     );
@@ -432,7 +433,8 @@ export function Home({
   const [folderDialog, setFolderDialog] = useState(false);
   const newFolderSpot = (
     <button
-      className={`new-folder ${newDrop ? "over" : ""}`}
+      className={`new-folder ghost ${newDrop ? "over" : ""}`}
+      title="Click, or drop a script here"
       onClick={() => setFolderDialog(true)}
       onDragOver={(e) => {
         if (!drag.current || drag.current.folder) return;
@@ -455,11 +457,8 @@ export function Home({
         setRenaming(created);
       }}
     >
-      <FolderPlus size={20} aria-hidden />
-      <span>
-        <b>New folder</b>
-        <span className="muted small">Click, or drag a script here</span>
-      </span>
+      <FolderPlus size={16} aria-hidden />
+      New folder
     </button>
   );
 
@@ -551,10 +550,12 @@ export function Home({
             )}
           </section>
           <section {...dropZoneProps("items")}>
-            <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
+            <div className="sec-row">
+              <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
+              {state.scripts.length > 1 && newFolderSpot}
+            </div>
             <div className="tiles" data-tiles>
               {shown.map((it) => (it.type === "folder" ? folderTile(it) : scriptTile(it.id, "items")))}
-              {state.scripts.length > 1 && newFolderSpot}
             </div>
           </section>
           </>
@@ -588,18 +589,17 @@ export function Home({
   );
 }
 
-/** One input as a chip: its label and the value it will run with ("Times 2", "Folder ext2"). */
+/** One input as a chip: its label and the value it will run with ("Times 2", "Folder ext2"), or "not set". */
 function InputChip({ name, spec, value }: { name: string; spec: ParamSpec; value: unknown }) {
   const empty = value === undefined || value === "" || value === null;
   // A web address reads as the file or site it points at ("missing.zip", "example.com").
   const url = typeof value === "string" && /^https?:\/\//.test(value) ? (() => { try { const u = new URL(value); return u.pathname.split("/").filter(Boolean).at(-1) ?? u.host; } catch { return null; } })() : null;
   const full = empty ? "" : spec.kind === "boolean" ? (value ? "on" : "off") : (url ?? fmtValue(spec, value));
   const shown = full.length > 14 ? `${full.slice(0, 13)}…` : full;
-  const needed = empty && !spec.optional;
   return (
-    <span className={`chip ${needed ? "empty" : ""}`} title={[url ? String(value) : full, spec.description, needed ? "You fill this in" : ""].filter(Boolean).join(". ")}>
+    <span className={`chip ${empty ? "unset" : ""}`} title={[url ? String(value) : full, spec.description].filter(Boolean).join(". ")}>
       <span className="chip-key">{labelOf(name, spec)}</span>
-      {shown && <span className="chip-val">{shown}</span>}
+      <span className="chip-val">{empty ? (spec.optional ? "optional" : "not set") : shown}</span>
     </span>
   );
 }
@@ -623,29 +623,35 @@ function asksFor(s: Script) {
   return `Asks for ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}`;
 }
 
-/** The bottom of a card: its inputs (up to three, then "+2") and how it last went. */
-function CardFoot({ script, values, last, every }: { script: Script; values: Record<string, unknown>; last: RunSummary | null; every?: string }) {
+/** The bottom of a card: two inputs (then "+2 more") and one quiet line on how it last went. */
+function CardFoot({ script, values, last, every, flagged }: { script: Script; values: Record<string, unknown>; last: RunSummary | null; every?: string; flagged: boolean }) {
   const params = Object.entries(script.params);
+  const rest = params.slice(2);
   const done = last && !isLive(last) ? last : null;
+  // The status pill already says Failed or Needs you, so the line below doesn't repeat it.
+  const outcome = done && !flagged ? lastLabel(done) : "";
   return (
     <>
       {params.length > 0 && (
         <span className="card-foot">
-          {params.slice(0, 3).map(([k, p]) => (
+          {params.slice(0, 2).map(([k, p]) => (
             <InputChip key={k} name={k} spec={p} value={values[k]} />
           ))}
-          {params.length > 3 && <span className="chip more">+{params.length - 3}</span>}
+          {rest.length > 0 && (
+            <span className="chip more" title={rest.map(([k, p]) => labelOf(k, p)).join(", ")}>
+              +{rest.length} more
+            </span>
+          )}
         </span>
       )}
-      {/* One quiet line, always there: status colour lives on the sticker alone. */}
       <span className="card-last">
         {every && (
           <span className="every-tag">
             <Clock size={12} aria-hidden /> Every {fmtEveryShort(every)}
-            {done && " · "}
+            {outcome && " · "}
           </span>
         )}
-        {done ? <span title={new Date(done.startedAt).toLocaleString()}>{lastLabel(done)}</span> : !every && !last && "Not run yet"}
+        {outcome ? <span title={new Date(done!.startedAt).toLocaleString()}>{outcome}</span> : !every && !last && "Not run yet"}
       </span>
     </>
   );

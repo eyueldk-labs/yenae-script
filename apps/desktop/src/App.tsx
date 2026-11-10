@@ -114,6 +114,7 @@ export function App() {
 
   const script = state?.scripts.find((s) => s.id === selected) ?? null;
   if (state) setHueIds(state.scripts.map((s) => s.id));
+  const [allAlerts, setAllAlerts] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs]);
 
@@ -209,7 +210,11 @@ export function App() {
         {(
           <div className="bar">
             <span className="wordmark">
-              <span className="logo" aria-hidden />
+              <svg className="logo" viewBox="0 0 24 24" aria-hidden>
+                <rect width="24" height="24" rx="7" fill="currentColor" />
+                <path d="M9.5 7.6v8.8a.6.6 0 0 0 .92.5l6.6-4.4a.6.6 0 0 0 0-1l-6.6-4.4a.6.6 0 0 0-.92.5Z" fill="var(--bg)" />
+                <rect x="5.5" y="7" width="2" height="10" rx="1" fill="var(--bg)" opacity=".55" />
+              </svg>
               <span className="wordmark-text">Yenae Script</span>
             </span>
             <div className="search">
@@ -258,6 +263,7 @@ export function App() {
             <button className="new-btn" onClick={() => setDialog("new")} aria-label="New script" title="New script">
               <Plus size={16} aria-hidden />
               <span className="label">New script</span>
+              <span className="label-short">New</span>
             </button>
             <button className="ib" title="Settings" aria-label="Settings" onClick={() => setDialog("settings")}>
               <Settings size={18} />
@@ -266,31 +272,31 @@ export function App() {
         )}
         <main className="catalog-body">
           {!query && alerts.length > 0 && (
-            // Everything that needs the user, in one quiet sentence. Each name opens that script
-            // at the run in question. An alert for the script already open is hidden (the panel says it).
-            <div className="alerts" role="region" aria-label="Needs you">
-              <span className={`dot ${alerts.some((n) => n.kind === "failed") ? "failed" : "waiting"}`} aria-hidden />
-              <span className="grow alerts-text">
-                {alerts.length > 1 && <b>{alerts.length} things need you: </b>}
-                {alerts.map((n, i) => (
-                  <span key={n.run} className="alert-item">
-                    {i > 0 && <span className="muted"> · </span>}
-                    <button className={`link alert-link ${n.kind}`} onClick={() => open(n.id, { run: n.run })}>
-                      {n.name}
-                    </button>
-                    {n.kind === "waiting" ? " is waiting for your answer" : ` failed ${n.when}`}
+            // What needs the user: one row each, each with the one thing to do about it. Two at most
+            // until "more" is pressed. An alert for the script already open is hidden (the panel says it).
+            <ul className="alerts" aria-label="Needs you">
+              {(allAlerts || alerts.length <= 2 ? alerts : alerts.slice(0, 1)).map((n) => (
+                <li key={n.run} className={`alert ${n.kind}`}>
+                  <span className={`dot ${n.kind}`} aria-hidden />
+                  <span className="grow alert-text">
+                    <b>{n.name}</b> {n.kind === "waiting" ? "is waiting for your answer" : `failed ${n.when}`}
                   </span>
-                ))}
-              </span>
-              {alerts.length === 1 && (
-                <button className={alerts[0]!.kind === "waiting" ? "primary" : ""} onClick={() => open(alerts[0]!.id, { run: alerts[0]!.run })}>
-                  {alerts[0]!.kind === "waiting" ? "Answer" : "See why"}
-                </button>
+                  <button className={n.kind === "waiting" ? "primary small-btn" : "small-btn"} onClick={() => open(n.id, { run: n.run })}>
+                    {n.kind === "waiting" ? "Answer" : "See why"}
+                  </button>
+                  <button className="ib" aria-label={`Dismiss ${n.name}`} title="Dismiss" onClick={() => setDismissed((d) => new Set(d).add(n.run))}>
+                    <X size={16} aria-hidden />
+                  </button>
+                </li>
+              ))}
+              {alerts.length > 2 && !allAlerts && (
+                <li className="alert more-alerts">
+                  <button className="link" onClick={() => setAllAlerts(true)}>
+                    +{alerts.length - 1} more
+                  </button>
+                </li>
               )}
-              <button className="ib" aria-label="Dismiss" title="Dismiss" onClick={() => setDismissed((d) => new Set([...d, ...alerts.map((n) => n.run)]))}>
-                <X size={16} aria-hidden />
-              </button>
-            </div>
+            </ul>
           )}
           <Home
             api={api}

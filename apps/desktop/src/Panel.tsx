@@ -63,7 +63,11 @@ export function Panel({
   const [invalid, setInvalid] = useState<string[]>([]);
   const [history, setHistory] = useState<RunSummary[]>([]);
   // The run shown under the form: one started or opened here. Older runs are in History.
-  const [shownRun, setShownRun] = useState<string | null>(opening.run ?? null);
+  // A failed last run is shown straight away, in the same place as any other result.
+  const [shownRun, setShownRun] = useState<string | null>(() => {
+    const l = state.lastRuns[script.id];
+    return opening.run ?? (l?.status === "failed" ? l.id : null);
+  });
   const [tab, setTab] = useState<Tab>(opening.tab ?? "run");
   const [msg, setMsg] = useState<Msg | null>(null);
   const [editWith, setEditWith] = useState<{ title: string; text: string } | null>(null);
@@ -188,7 +192,7 @@ export function Panel({
 
   const home = folderOf(layout, script.id);
   const menuItems: MenuEntry[] = [
-    ...(agent ? [{ label: `Change with ${agent.name}…`, onSelect: () => setEditWith({ title: "Change this script", text: "" }) }] : []),
+    ...(agent ? [{ label: "Change what it does…", onSelect: () => setEditWith({ title: "Change this script", text: "" }) }] : []),
     { heading: "Move to folder" },
     ...layout.items
       .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder" && i.id !== home?.id)
@@ -200,20 +204,18 @@ export function Panel({
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
   ];
 
-  // A failed last run that isn't on screen yet gets a one-line summary above the form.
-  const lastFailed = last && last.status === "failed" && last.id !== runId ? last : null;
   const shownIsOld = !!run && !isLive(run) && params.length > 0 && JSON.stringify(run.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
 
   // Opened from "See why": the failure comes first, above the form.
-  const failFirst = !!run && !live && run.status === "failed" && run.id === opening.run;
+  const failFirst = !!run && !live && run.status === "failed";
   const output = run && (
-              <section className={`run-output ${failFirst ? "first" : ""}`} aria-label="Output">
+              <section className={`run-output ${failFirst ? "result-box failed" : ""}`} aria-label="Result">
                 {!live && (
                   <div className="run-head small">
                     <span className={`dot ${run.status}`} aria-hidden />
                     <span className={run.status === "failed" ? "bad-text" : ""}>{STATUS[run.status]}</span>
                     <span className="muted">
-                      {fmtAgo(run.endedAt ?? run.startedAt)}
+                      · {fmtAgo(run.endedAt ?? run.startedAt)}
                       {SOURCE[run.source] ? ` · ${SOURCE[run.source]}` : ""}
                     </span>
                     <span className="grow" />
@@ -243,12 +245,9 @@ export function Panel({
                           </button>
                         )}
                         {run.status === "failed" && agent && (
-                          <>
-                            <button className="primary" onClick={() => fixFailure(run)}>
-                              Ask {agent.name} to fix it
-                            </button>
-                            <span className="muted small">Opens a helper window.</span>
-                          </>
+                          <button onClick={() => fixFailure(run)} title={`Asks ${agent.name} to find and fix the problem, in a new window`}>
+                            Help me fix this
+                          </button>
                         )}
                       </div>
                     )
@@ -321,14 +320,7 @@ export function Panel({
           >
             {label}
             {extra && <span className="count">{extra}</span>}
-            {id === "schedule" && scheduleOn && (
-              // On is green; a failing schedule says so in red words, not just a dot.
-              schedLast?.status === "failed" ? (
-                <span className="dot failed" role="img" aria-label="last automatic run failed" />
-              ) : (
-                <span className="dot ok" role="img" aria-label="on" />
-              )
-            )}
+            {id === "schedule" && scheduleOn && <span className="count on">On</span>}
           </button>
         ))}
       </div>
@@ -338,29 +330,19 @@ export function Panel({
           <div role="tabpanel" id="panel-run" aria-labelledby="tab-run" className="run-tab">
             {failFirst && output}
             {script.error && (
-              <div className="callout bad">
-                <b>This script can't be opened. It has a mistake in it.</b>
-                <pre className="err-text">{script.error}</pre>
+              <div className="result-box failed">
+                <b className="result-title bad-text">This script can't be opened. It has a mistake in it.</b>
+                <details className="tech">
+                  <summary>Technical details</summary>
+                  <pre className="log">{script.error}</pre>
+                </details>
                 {agent && (
-                  <button className="link" onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}>
-                    Ask {agent.name} to fix it
-                  </button>
+                  <div className="row wrap after-run">
+                    <button onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })} title={`Asks ${agent.name} to fix it, in a new window`}>
+                      Help me fix this
+                    </button>
+                  </div>
                 )}
-              </div>
-            )}
-
-            {lastFailed && !live && (
-              <div className="callout bad">
-                <span className="row">
-                  <span className="dot failed" aria-hidden />
-                  <b className="grow">
-                    {lastFailed.source === "schedule" ? "The last automatic run" : "The last run"} failed {fmtAgo(lastFailed.endedAt ?? lastFailed.startedAt)}
-                  </b>
-                  <button className="link" onClick={() => setShownRun(lastFailed.id)}>
-                    See what happened
-                  </button>
-                </span>
-                {errLine(lastFailed) && <span className="err-text">{friendlyError(errLine(lastFailed)) ?? plainError(errLine(lastFailed))}</span>}
               </div>
             )}
 
@@ -445,9 +427,11 @@ export function Panel({
               <section key={day} className="hist-day">
                 <h3>{day}</h3>
                 <ul className="hist">
-                  {collapseRepeats(rows).map(({ run: h, count, since }) => {
+                  {collapseRepeats(rows).map(({ run: h, count, since }, i, all) => {
                     const err = h.status === "failed" && h.error ? (friendlyError(h.error) ?? plainError(h.error)) : "";
+                    // Values only where they change from the row above.
                     const vals = fmtParams(h.params, script.params);
+                    const prevVals = i > 0 ? fmtParams(all[i - 1]!.run.params, script.params) : null;
                     return (
                       <li key={h.id}>
                         <button
@@ -468,11 +452,11 @@ export function Panel({
                                 {count > 1 && since ? `${clock(since)} – ` : ""}
                                 {clock(h.startedAt)}
                                 {/* Only durations people care about: a minute or more. */}
-                                {h.endedAt && h.endedAt - h.startedAt >= 60_000 ? ` · took ${fmtDur(h.endedAt - h.startedAt)}` : ""}
+                                {count === 1 && h.endedAt && h.endedAt - h.startedAt >= 60_000 ? ` · took ${fmtDur(h.endedAt - h.startedAt)}` : ""}
                                 {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
                               </span>
                             </span>
-                            {(err || vals) && <span className={`hist-params ${err ? "bad-text" : ""}`}>{err || vals}</span>}
+                            {(err || (vals && vals !== prevVals)) && <span className={`hist-params ${err ? "bad-text" : ""}`}>{err || vals}</span>}
                           </span>
                           <ChevronRight size={16} className="hist-chev" aria-hidden />
                         </button>
@@ -516,7 +500,7 @@ export function Panel({
             setEditWith(null);
             api
               .editWith(script.id, h.id, what)
-              .then(() => setMsg({ text: `Opened ${h.name} in a terminal.`, tone: "note" }))
+              .then(() => setMsg({ text: "Opened a new window to make the change.", tone: "note" }))
               .catch((e) => setMsg({ text: e.message, tone: "bad" }));
           }}
         />

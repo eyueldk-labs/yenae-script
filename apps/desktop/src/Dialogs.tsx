@@ -162,7 +162,7 @@ export function NewScriptDialog({
             onChange={(e) => setWhat(e.target.value)}
           />
           {agent ? (
-            <div className="hint">{agent.name} writes it for you; a helper window opens while it works.</div>
+            <div className="hint">It gets written for you in a new window. This takes a minute or two.</div>
           ) : (
             state.harnesses.length === 0 && (
               <div className="hint">This makes an empty script. Install Claude Code, Codex, Gemini CLI or OpenCode to have one written for you.</div>
@@ -256,7 +256,7 @@ export function EditWithDialog({
         </div>
         {harnesses.length > 1 && (
           <div className="field">
-            <label htmlFor="ew-agent">Agent</label>
+            <label htmlFor="ew-agent">Done by</label>
             <select id="ew-agent" value={agent.id} onChange={(e) => setHarness(e.target.value)}>
               {harnesses.map((h) => (
                 <option key={h.id} value={h.id}>
