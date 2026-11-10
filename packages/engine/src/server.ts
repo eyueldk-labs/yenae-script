@@ -91,6 +91,9 @@ export function serve(engine: Engine) {
             return json(req, { ok: true });
           case "/api/schedule":
             return json(req, engine.setSchedule(body.script, body.every, body.params ?? {}, !!body.enabled));
+          case "/api/layout":
+            await engine.scanning;
+            return json(req, engine.saveLayout(body.layout));
           case "/api/settings":
             engine.saveSettings({ workspace: body.workspace });
             await engine.scanning;

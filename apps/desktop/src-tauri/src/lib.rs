@@ -7,7 +7,7 @@ use tauri::{
     menu::{Menu, MenuItem},
     path::BaseDirectory,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, WindowEvent,
+    AppHandle, Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_shell::{
@@ -31,11 +31,27 @@ fn engine_info(engine: tauri::State<Engine>) -> Option<serde_json::Value> {
     engine.info.lock().unwrap().clone()
 }
 
+/// The UI reports how many runs need the user (questions waiting, schedules failing),
+/// so the tray says so while the window is hidden.
+#[tauri::command]
+fn set_attention(app: AppHandle, count: u32) {
+    if let Some(tray) = app.tray_by_id("tray") {
+        let tip = match count {
+            0 => "Yenae Script".to_string(),
+            1 => "Yenae Script: 1 needs you".to_string(),
+            n => format!("Yenae Script: {n} need you"),
+        };
+        let _ = tray.set_tooltip(Some(tip));
+    }
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        // Lets the UI put the cursor in search, so the hotkey works as a launcher.
+        let _ = w.emit("shown", ());
     }
 }
 
@@ -114,7 +130,7 @@ pub fn run() {
                 .build(),
         )
         .manage(Engine::default())
-        .invoke_handler(tauri::generate_handler![engine_info])
+        .invoke_handler(tauri::generate_handler![engine_info, set_attention])
         .setup(|app| {
             let handle = app.handle().clone();
             if let Err(e) = start_engine(&handle) {

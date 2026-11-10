@@ -3,6 +3,7 @@ import { defineScript, text, number, boolean, select, ask, show } from "yenae-sc
 export default defineScript({
   name: "Hello",
   description: "Shows a form, asks questions while running and shows results.",
+  icon: "message",
   params: {
     name: text().default("world"),
     times: number({ min: 1, max: 10 }).default(3),

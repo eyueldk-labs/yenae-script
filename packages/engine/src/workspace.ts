@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { ICONS } from "yenae-script";
 import { insideWorkspace, SDK_SOURCE } from "./paths";
+
+const ICON_LIST = ICONS.map((i) => `\`${i}\``).join(", ");
 
 const SDK_VERSION = "0.1.0";
 
@@ -27,6 +30,7 @@ import { defineScript, text, number, boolean, select, file, folder, ask, show } 
 export default defineScript({
   name: "Resize images",
   description: "Shrink every image in a folder.",
+  icon: "image", // the tile icon; see ICONS in yenae-script for the names
   params: {
     source: folder().label("Images"),
     width: number({ min: 16 }).default(1280),
@@ -46,6 +50,8 @@ export default defineScript({
 });
 \`\`\`
 
+- Give every script a short \`name\`, a one-line \`description\` and an \`icon\`: the app shows them on its tile.
+  Icons: ${ICON_LIST}.
 - Params become a form. Kinds: \`text\`, \`number\`, \`boolean\`, \`select\`, \`file\`, \`folder\`.
   Modifiers: \`.label()\`, \`.describe()\`, \`.default()\`, \`.optional()\`.
 - Ask while running: \`ask.text\`, \`ask.select\`, \`ask.confirm\`, \`ask.file\`, \`ask.folder\`.

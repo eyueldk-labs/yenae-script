@@ -49,6 +49,7 @@ export class Store {
         script TEXT PRIMARY KEY, every TEXT NOT NULL, params TEXT NOT NULL,
         enabled INTEGER NOT NULL, next_run INTEGER, last_run_id TEXT
       );
+      CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_cache (
         path TEXT PRIMARY KEY, stamp TEXT NOT NULL, meta TEXT
       );
@@ -84,6 +85,31 @@ export class Store {
           .all(script, limit)
       : this.db.query("SELECT * FROM runs ORDER BY started_at DESC LIMIT ?").all(limit);
     return (rows as any[]).map(toSummary);
+  }
+
+  /** The newest run of each script. */
+  lastRuns(): RunSummary[] {
+    const rows = this.db
+      .query(
+        `SELECT r.* FROM runs r JOIN (SELECT script, MAX(started_at) AS m FROM runs GROUP BY script) x
+         ON r.script = x.script AND r.started_at = x.m`,
+      )
+      .all();
+    return (rows as any[]).map(toSummary);
+  }
+
+  getValue<T>(key: string): T | null {
+    const row = this.db.query("SELECT value FROM kv WHERE key = ?").get(key) as { value: string } | null;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.value) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  setValue(key: string, value: unknown) {
+    this.db.run("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, JSON.stringify(value)]);
   }
 
   getRun(id: string): (RunSummary & { events: RunEvent[] }) | null {

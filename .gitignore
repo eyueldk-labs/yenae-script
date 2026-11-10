@@ -14,3 +14,4 @@ examples/workspace/.mcp.json
 examples/workspace/AGENTS.md
 examples/workspace/CLAUDE.md
 examples/workspace/.gitignore
+apps/desktop/.impeccable/mocks/

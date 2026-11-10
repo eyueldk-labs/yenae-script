@@ -1,6 +1,6 @@
 # Yenae Script
 
-A small desktop app for your own TypeScript scripts. Pick a script, fill in its form, run it, and watch the output. Scripts can ask questions while they run, show tables and markdown, and run on a schedule from the tray. A schedule keeps its own values, and the Activity view shows anything waiting for an answer, what's running, each schedule's last result and recent runs. Local agents (Claude Code, Codex, …) can write and run scripts through its MCP server.
+A small desktop app for your own TypeScript scripts. Pick a script, fill in its form, run it, and watch the output. Scripts can ask questions while they run, show tables and markdown, and run on a schedule from the tray. Scripts show as icons you can favourite and group into folders; click one and its form opens beside the catalog. A schedule keeps its own values, and "needs you" in the top bar collects questions waiting for an answer and schedules that failed. Local agents (Claude Code, Codex, …) can write and run scripts through its MCP server.
 
 ## How scripts are organised
 
@@ -25,6 +25,7 @@ import { defineScript, text, folder, ask, show } from "yenae-script";
 export default defineScript({
   name: "Update unpacked extension",
   params: { zipUrl: text(), target: folder() },
+  icon: "download",                    // the tile icon (see ICONS in the SDK)
   schedule: { every: "10m" },          // suggested; switched on in the app
   async run({ zipUrl, target }) {
     if (!(await ask.confirm(`Mirror into ${target}?`))) return;
@@ -33,7 +34,7 @@ export default defineScript({
 });
 ```
 
-A file without `defineScript` runs top to bottom with no form. The app writes the full API into `AGENTS.md` in your scripts folder (source: `packages/engine/src/workspace.ts`).
+A file without `defineScript` runs top to bottom with no form. Favourites, folders and order are kept by the app, not on disk, so arranging never moves a file. The app writes the full API into `AGENTS.md` in your scripts folder (source: `packages/engine/src/workspace.ts`).
 
 ## Agents
 

@@ -1,4 +1,5 @@
-import type { RunStatus, RunSummary } from "./api";
+import type { ParamSpec, RunStatus, RunSummary } from "./api";
+import { fmtValue, labelOf } from "./Form";
 
 export const STATUS: Record<RunStatus, string> = {
   running: "Running",
@@ -41,10 +42,18 @@ export function fmtDur(ms: number) {
   return ms < 1000 ? `${ms} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60_000)} min`;
 }
 
-export function fmtParams(p: Record<string, unknown>) {
+/** A run's values as the form labels them: "Name world · Times 3". */
+export function fmtParams(p: Record<string, unknown>, specs: Record<string, ParamSpec> = {}) {
   return Object.entries(p)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join("  ");
+    .map(([k, v]) => `${specs[k] ? labelOf(k, specs[k]!) : k} ${fmtValue(specs[k], v)}`)
+    .join(" · ");
+}
+
+/** A script's last run in a few words: "Failed 2 min ago", "Waiting for you". */
+export function lastLabel(r: RunSummary) {
+  if (r.status === "waiting") return "Waiting for you";
+  if (r.status === "running") return "Running now";
+  return `${STATUS[r.status]} ${fmtAgo(r.endedAt ?? r.startedAt)}`;
 }
 
 export const SOURCE: Record<RunSummary["source"], string> = { manual: "", schedule: "scheduled", mcp: "agent" };

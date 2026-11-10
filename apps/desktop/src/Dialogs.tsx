@@ -6,6 +6,15 @@ type Harness = { id: string; name: string };
 let openDialogs = 0;
 /** True while a dialog is open, so page-level shortcuts stand down. */
 export const modalOpen = () => openDialogs > 0;
+/** Menus and popovers hold the page's shortcuts too; call the result to release. */
+export function holdModal() {
+  openDialogs++;
+  let held = true;
+  return () => {
+    if (held) openDialogs--;
+    held = false;
+  };
+}
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 

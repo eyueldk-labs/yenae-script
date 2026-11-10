@@ -30,7 +30,7 @@ export function fmtValue(spec: ParamSpec | undefined, v: unknown) {
   return typeof v === "string" ? v : JSON.stringify(v);
 }
 
-export const fieldId = (key: string) => `p-${key}`;
+export const fieldId = (key: string, prefix = "p") => `${prefix}-${key}`;
 
 export function ParamForm({
   params,
@@ -38,6 +38,7 @@ export function ParamForm({
   onChange,
   onSubmit,
   invalid = [],
+  idPrefix = "p",
 }: {
   params: Record<string, ParamSpec>;
   values: Record<string, unknown>;
@@ -45,6 +46,8 @@ export function ParamForm({
   onSubmit: () => void;
   /** Required params left empty on the last Run. */
   invalid?: string[];
+  /** Keeps field ids unique when two forms for one script are on screen. */
+  idPrefix?: string;
 }) {
   const set = (k: string, v: unknown) => onChange({ ...values, [k]: v });
   return (
@@ -56,7 +59,7 @@ export function ParamForm({
       }}
     >
       {Object.entries(params).map(([key, p]) => (
-        <Field key={key} id={key} spec={p} value={values[key]} invalid={invalid.includes(key)} onChange={(v) => set(key, v)} />
+        <Field key={key} id={key} prefix={idPrefix} spec={p} value={values[key]} invalid={invalid.includes(key)} onChange={(v) => set(key, v)} />
       ))}
       <button type="submit" hidden />
     </form>
@@ -65,19 +68,21 @@ export function ParamForm({
 
 function Field({
   id,
+  prefix,
   spec,
   value,
   invalid,
   onChange,
 }: {
   id: string;
+  prefix: string;
   spec: ParamSpec;
   value: unknown;
   invalid: boolean;
   onChange: (v: unknown) => void;
 }) {
   const label = labelOf(id, spec);
-  const fid = fieldId(id);
+  const fid = fieldId(id, prefix);
   const hintId = `${fid}-hint`;
   const hint = (spec.description || invalid) && (
     <div id={hintId} className={invalid ? "hint bad" : "hint"}>

@@ -4,6 +4,7 @@ import { extensionFiles, checkTarget, mirror } from "../lib/mirror";
 export default defineScript({
   name: "Update unpacked extension",
   description: "Download an extension zip and mirror it into its unpacked folder.",
+  icon: "download",
   params: {
     zipUrl: text({ placeholder: "https://example.com/extension.zip" }).label("Zip URL"),
     target: folder().label("Extension folder"),

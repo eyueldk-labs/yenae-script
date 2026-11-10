@@ -20,6 +20,8 @@ export interface Script {
   folder: string;
   name: string;
   description?: string;
+  /** Icon name from defineScript (see the SDK's ICONS). */
+  icon?: string;
   params: Record<string, ParamSpec>;
   schedule?: { every: string };
   plain: boolean;
@@ -36,6 +38,12 @@ export interface Schedule {
   nextRun: number | null;
   lastRunId: string | null;
   last: RunSummary | null;
+}
+
+export type LayoutItem = { type: "script"; id: string } | { type: "folder"; id: string; name: string; scripts: string[] };
+export interface Layout {
+  favourites: string[];
+  items: LayoutItem[];
 }
 
 export type RunStatus = "running" | "waiting" | "ok" | "failed" | "stopped";
@@ -83,6 +91,9 @@ export interface State {
   live: RunDetail[];
   /** Newest runs of any script. */
   recent: RunSummary[];
+  /** The newest run of each script, by script id. */
+  lastRuns: Record<string, RunSummary>;
+  layout: Layout;
   harnesses: { id: string; name: string }[];
   platform: string;
 }
@@ -153,6 +164,7 @@ export class Api {
   answer = (run: string, id: number, value: unknown) => this.req("/api/run/answer", { run, id, value });
   schedule = (script: string, every: string, params: Record<string, unknown>, enabled: boolean) =>
     this.req<Schedule>("/api/schedule", { script, every, params, enabled });
+  saveLayout = (layout: Layout) => this.req<Layout>("/api/layout", { layout });
   settings = (workspace: string) => this.req<State>("/api/settings", { workspace });
   newProject = (name: string) => this.req<{ id: string }>("/api/project", { name });
   newScript = (project: string, file: string, description: string, harness?: string) =>

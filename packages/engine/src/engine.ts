@@ -8,6 +8,7 @@ import { ensureWorkspace, createProject, createScript } from "./workspace";
 import { detectHarnesses, launchHarness, openInEditor } from "./launch";
 import { insideWorkspace, parseEvery } from "./paths";
 import type { RunSource, RunSummary } from "./db";
+import { normalizeLayout, type Layout } from "./layout";
 
 export interface Settings {
   workspace: string;
@@ -151,11 +152,31 @@ export class Engine {
       scripts: this.scripts.map(({ path, ...s }) => s),
       // Each schedule carries its last run, so a failing one can't hide behind its interval.
       schedules: this.store.schedules().map((s) => ({ ...s, last: this.lastRun(s.lastRunId) })),
+      layout: this.layout(),
+      // The newest run of every script, for tiles and the list view.
+      lastRuns: Object.fromEntries(
+        this.store.lastRuns().map((r) => [r.script, this.runs.live.has(r.id) ? summarize(this.runs.get(r.id)!) : r]),
+      ),
       recent: this.store.listRuns(undefined, 12).map((r) => (this.runs.live.has(r.id) ? summarize(this.runs.get(r.id)!) : r)),
       live: [...this.runs.live.keys()].map((id) => this.runs.get(id)),
       harnesses: detectHarnesses(),
       platform: process.platform,
     };
+  }
+
+  private get layoutKey() {
+    return `layout:${this.settings.workspace}`;
+  }
+
+  layout(): Layout {
+    return normalizeLayout(this.store.getValue(this.layoutKey), this.scripts.map((s) => s.id));
+  }
+
+  saveLayout(raw: unknown) {
+    const layout = normalizeLayout(raw, this.scripts.map((s) => s.id));
+    this.store.setValue(this.layoutKey, layout);
+    for (const l of this.changeListeners) l();
+    return layout;
   }
 
   private lastRun(id: string | null) {

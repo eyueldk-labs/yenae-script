@@ -19,7 +19,7 @@ beforeAll(async () => {
     join(ws, "p/scripts/ask.ts"),
     `import { defineScript, number, ask, show } from "yenae-script";
 export default defineScript({
-  name: "Ask", params: { n: number().default(2) },
+  name: "Ask", icon: "message", params: { n: number().default(2) },
   async run({ n }) {
     console.log("n is", n);
     const ok = await ask.confirm("Go?");
@@ -49,6 +49,7 @@ test("scan finds scripts, folders and params", () => {
   expect(plain.folder).toBe("sub");
   expect(plain.description).toBe("Says hi");
   expect(ask.asks).toBe(true);
+  expect(ask.icon).toBe("message");
   expect(plain.asks).toBe(false);
   expect(engine.script("p/scripts/broken.ts").error).toContain("does-not-exist");
 });
@@ -101,3 +102,15 @@ test("state shows each schedule's last run and recent runs", async () => {
   expect(recent[0]!.id).toBe(sched.last.id);
   engine.setSchedule("p/scripts/sub/plain.ts", "1h", {}, false);
 }, 30_000);
+
+test("the layout is saved, normalized and shown in state", () => {
+  const saved = engine.saveLayout({
+    favourites: ["p/scripts/ask.ts"],
+    items: [{ type: "folder", id: "f", name: "Mine", scripts: ["p/scripts/sub/plain.ts", "p/scripts/ask.ts"] }],
+  });
+  expect(saved.items[0]).toEqual({ type: "folder", id: "f", name: "Mine", scripts: ["p/scripts/sub/plain.ts", "p/scripts/ask.ts"] });
+  expect(saved.items.slice(1)).toEqual([{ type: "script", id: "p/scripts/broken.ts" }]);
+  const st = engine.state();
+  expect(st.layout).toEqual(saved);
+  expect(st.lastRuns["p/scripts/ask.ts"]?.script).toBe("p/scripts/ask.ts");
+});

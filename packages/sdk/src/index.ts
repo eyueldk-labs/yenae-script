@@ -78,9 +78,22 @@ export interface Schedule {
   every: string;
 }
 
+/** Icons a script can show in the app. Without one, the app draws the name's first letter. */
+export const ICONS = [
+  "archive", "bell", "book", "bookmark", "bot", "box", "calendar", "camera", "chart", "check", "clock", "cloud",
+  "code", "copy", "cpu", "database", "dollar", "download", "drive", "file", "file-text", "film", "flame", "folder",
+  "git", "globe", "heart", "home", "image", "key", "languages", "link", "list", "lock", "mail", "map", "message",
+  "monitor", "moon", "music", "package", "pen", "phone", "play", "printer", "puzzle", "refresh", "rocket",
+  "scissors", "search", "send", "server", "settings", "shield", "shopping", "sparkles", "star", "sun", "table",
+  "terminal", "timer", "trash", "upload", "user", "users", "wand", "wifi", "wrench", "zap",
+] as const;
+export type IconName = (typeof ICONS)[number];
+
 export interface ScriptMeta {
   name: string;
   description?: string;
+  /** One of ICONS, shown on the script's tile in the app. */
+  icon?: IconName;
   params: Record<string, ParamSpec>;
   /** A suggested schedule. The user turns it on in the app. */
   schedule?: Schedule;
@@ -89,6 +102,8 @@ export interface ScriptMeta {
 export interface ScriptDefinition<P extends Params = Params> {
   name: string;
   description?: string;
+  /** The tile icon in the app, e.g. "download". See ICONS. */
+  icon?: IconName;
   params?: P;
   schedule?: Schedule;
   run: (params: ParamValues<P>) => unknown | Promise<unknown>;
@@ -107,7 +122,7 @@ export function defineScript<P extends Params = {}>(def: ScriptDefinition<P>): D
   for (const [key, p] of Object.entries(def.params ?? {})) params[key] = p.spec;
   const script: DefinedScript = {
     [DEFINITION]: true,
-    meta: { name: def.name, description: def.description, params, schedule: def.schedule },
+    meta: { name: def.name, description: def.description, icon: def.icon, params, schedule: def.schedule },
     run: def.run as DefinedScript["run"],
   };
   // Run directly with `bun file.ts`: no app host, so run with CLI args.

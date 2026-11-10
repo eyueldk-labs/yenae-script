@@ -1,0 +1,459 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Ellipsis, Maximize2, Minimize2, Star, X, ChevronLeft } from "lucide-react";
+import type { Api, RunDetail, RunSummary, Script, State } from "./api";
+import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing } from "./Form";
+import { RunOutput } from "./Output";
+import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
+import { SchedulePanel } from "./Schedule";
+import { Menu, type MenuEntry } from "./Menu";
+import { ScriptIcon } from "./icons";
+import { MOD, SOURCE, STATUS, fmtAgo, fmtDur, fmtParams, isLive } from "./fmt";
+import { store } from "./store";
+
+export type Tab = "run" | "history" | "schedule";
+export type Opening = { run?: string; tab?: Tab; focus?: boolean; key: number };
+type Msg = { text: string; tone: "bad" | "note"; undo?: () => void };
+
+/**
+ * One script beside the catalog: its form and Run, the run it is showing, its
+ * history and its schedule. While a run is live the form folds into one line, so
+ * the output and any question lead.
+ */
+export function Panel({
+  api,
+  script,
+  state,
+  runs,
+  setRuns,
+  opening,
+  favourite,
+  wide,
+  onFavourite,
+  onWide,
+  onClose,
+}: {
+  api: Api;
+  script: Script;
+  state: State;
+  runs: Record<string, RunDetail>;
+  setRuns: React.Dispatch<React.SetStateAction<Record<string, RunDetail>>>;
+  opening: Opening;
+  favourite: boolean;
+  wide: boolean;
+  onFavourite: () => void;
+  onWide: () => void;
+  onClose: () => void;
+}) {
+  const schedule = state.schedules.find((s) => s.script === script.id) ?? null;
+  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...defaults(script.params), ...store.get(`values:${script.id}`, {}) }));
+  const [invalid, setInvalid] = useState<string[]>([]);
+  const [history, setHistory] = useState<RunSummary[]>([]);
+  // The run shown under the form: one started or opened here. Older runs are in History.
+  const [shownRun, setShownRun] = useState<string | null>(opening.run ?? null);
+  const [tab, setTab] = useState<Tab>(opening.tab ?? "run");
+  const [msg, setMsg] = useState<Msg | null>(null);
+  const [editWith, setEditWith] = useState<{ title: string; text: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const root = useRef<HTMLElement>(null);
+  const runButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => store.set(`values:${script.id}`, values), [script.id, values]);
+
+  useEffect(() => {
+    if (opening.run) setShownRun(opening.run);
+    if (opening.tab || opening.run) setTab(opening.tab ?? "run");
+    if (!opening.focus) return;
+    requestAnimationFrame(() => {
+      const first = root.current?.querySelector<HTMLElement>(".run-form input, .run-form select, .run-form textarea");
+      (first ?? runButton.current)?.focus();
+    });
+  }, [opening.key]);
+
+  const loadHistory = useCallback(() => api.runs(script.id).then(setHistory).catch(() => {}), [api, script.id]);
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const live = Object.values(runs)
+    .filter((r) => r.script === script.id && isLive(r))
+    .sort((a, b) => b.startedAt - a.startedAt)[0];
+  const runId = live?.id ?? shownRun;
+  const run = runId ? runs[runId] : null;
+  const last = state.lastRuns[script.id] ? (runs[state.lastRuns[script.id]!.id] ?? state.lastRuns[script.id]!) : null;
+
+  // When a run ends: refresh history and, if focus fell off the page, put it on Run.
+  const liveId = live?.id;
+  const wasLive = useRef(liveId);
+  useEffect(() => {
+    if (!liveId) {
+      loadHistory();
+      if (wasLive.current) {
+        setShownRun(wasLive.current);
+        requestAnimationFrame(() => {
+          if (!document.activeElement || document.activeElement === document.body) runButton.current?.focus();
+        });
+      }
+    }
+    wasLive.current = liveId;
+  }, [liveId, loadHistory]);
+
+  // Load a finished run's output when it's shown but not in memory.
+  useEffect(() => {
+    if (runId && (!runs[runId] || (runs[runId]!.events.length === 0 && !isLive(runs[runId]!)))) {
+      api.getRun(runId).then((r) => setRuns((p) => ({ ...p, [r.id]: r }))).catch(() => {});
+    }
+  }, [runId]);
+
+  const start = async (params = values) => {
+    const miss = missing(script.params, params);
+    if (miss.length) {
+      setTab("run");
+      setInvalid(miss);
+      setMsg({ text: `Fill in ${miss.map((k) => labelOf(k, script.params[k]!)).join(", ")}.`, tone: "bad" });
+      requestAnimationFrame(() => document.getElementById(fieldId(miss[0]!))?.focus());
+      return;
+    }
+    setInvalid([]);
+    setMsg(null);
+    try {
+      const { id } = await api.run(script.id, params);
+      setRuns((p) => ({
+        ...p,
+        [id]: p[id] ?? { id, script: script.id, params, source: "manual", status: "running", exitCode: null, error: null, startedAt: Date.now(), endedAt: null, events: [] },
+      }));
+      setShownRun(id);
+      setTab("run");
+    } catch (e: any) {
+      setMsg({ text: e.message, tone: "bad" });
+    }
+  };
+
+  // Ctrl/Cmd+Enter runs from anywhere in the window.
+  const startRef = useRef(start);
+  startRef.current = start;
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || modalOpen()) return;
+      e.preventDefault();
+      if (!liveRef.current && !script.error) startRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [script.error]);
+
+  const params = Object.entries(script.params);
+  const agent = preferredHarness(state.harnesses);
+  const agentName = state.harnesses.length === 1 ? agent?.name : "agent";
+  const scheduleOn = !!schedule?.enabled;
+  const schedLast = schedule?.last ? (runs[schedule.last.id] ?? schedule.last) : null;
+  const errLine = (r: RunSummary | RunDetail) =>
+    ("events" in r ? r.events.filter((e) => e.t === "err").map((e) => (e as { text: string }).text).join("") : "")
+      .trim()
+      .split("\n")
+      .find((l) => l.trim()) ?? r.error ?? "";
+
+  const fixFailure = (r: RunDetail) => {
+    const err = r.events
+      .filter((e) => e.t === "err")
+      .map((e) => (e as { text: string }).text)
+      .join("")
+      .trim()
+      .split("\n")
+      .slice(-12)
+      .join("\n");
+    setEditWith({ title: "Fix this script", text: `This run failed${r.exitCode ? ` with exit code ${r.exitCode}` : ""}.\n${err || r.error || ""}\n\nFind the cause and fix it.` });
+  };
+
+  const menuItems: MenuEntry[] = [
+    { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
+    ...(agent ? [{ label: `Edit with ${agentName}…`, onSelect: () => setEditWith({ title: `Edit with ${agentName}`, text: "" }) }] : []),
+    { label: wide ? "Show the catalog" : "Fill the window", onSelect: onWide },
+  ];
+
+  // A failed last run that isn't on screen yet gets a one-line summary above the form.
+  const lastFailed = last && last.status === "failed" && last.id !== runId ? last : null;
+  const shownIsOld = !!run && !isLive(run) && params.length > 0 && JSON.stringify(run.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
+
+  return (
+    <aside ref={root} className={`panel ${wide ? "wide" : ""}`} aria-label={script.name}>
+      <header className="panel-head">
+        <button className="ib back-btn" onClick={onClose} aria-label="Back to scripts">
+          <ChevronLeft size={18} />
+          Scripts
+        </button>
+        <div className="panel-title">
+          <ScriptIcon script={script} size={40} />
+          <div className="grow">
+            <h2>{script.name}</h2>
+            {script.description && <p className="desc">{script.description}</p>}
+          </div>
+          <button className={`ib ${favourite ? "fav" : ""}`} aria-pressed={favourite} title={favourite ? "Remove from favourites" : "Add to favourites"} onClick={onFavourite}>
+            <Star size={17} fill={favourite ? "currentColor" : "none"} />
+          </button>
+          <button className="ib only-wide-screen" title={wide ? "Show the catalog" : "Fill the window"} onClick={onWide}>
+            {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          <button
+            className="ib"
+            title="More"
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({ x: r.right - 200, y: r.bottom + 4 });
+            }}
+          >
+            <Ellipsis size={18} />
+          </button>
+          <button className="ib close-btn" title="Close (Esc)" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </div>
+        {menu && <Menu x={menu.x} y={menu.y} label="Script" items={menuItems} onClose={() => setMenu(null)} />}
+      </header>
+
+      <div className="tabs" role="tablist" aria-label="Script">
+        {(
+          [
+            ["run", "Run", ""],
+            ["history", "History", history.length ? String(history.length) : ""],
+            ["schedule", "Schedule", scheduleOn ? `every ${schedule!.every}` : ""],
+          ] as const
+        ).map(([id, label, extra]) => (
+          <button
+            key={id}
+            id={`tab-${id}`}
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            className={tab === id ? "on" : ""}
+            onClick={() => setTab(id)}
+            onKeyDown={(e) => {
+              const order: Tab[] = ["run", "history", "schedule"];
+              const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+              if (!d) return;
+              const next = order[(order.indexOf(id) + d + 3) % 3]!;
+              setTab(next);
+              document.getElementById(`tab-${next}`)?.focus();
+            }}
+          >
+            {label}
+            {extra && <span className="muted"> {extra}</span>}
+            {id === "schedule" && scheduleOn && schedLast && (schedLast.status === "failed" || schedLast.status === "waiting") && (
+              <span className={`dot ${schedLast.status}`} aria-label={STATUS[schedLast.status]} />
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="panel-body">
+        {tab === "run" && (
+          <div role="tabpanel" id="panel-run" aria-labelledby="tab-run" className="run-tab">
+            {script.error && (
+              <div className="callout bad">
+                <b>This script doesn't load.</b>
+                <pre className="err-text">{script.error}</pre>
+                {agent && (
+                  <button className="link" onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}>
+                    Fix with {agentName}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {lastFailed && !live && (
+              <div className="callout bad">
+                <span className="row">
+                  <span className="dot failed" aria-hidden />
+                  <b className="grow">
+                    {lastFailed.source === "schedule" ? "Scheduled run" : "Last run"} failed {fmtAgo(lastFailed.endedAt ?? lastFailed.startedAt)}
+                  </b>
+                  <button className="link" onClick={() => setShownRun(lastFailed.id)}>
+                    Show run
+                  </button>
+                </span>
+                {errLine(lastFailed) && <span className="err-text">{errLine(lastFailed)}</span>}
+              </div>
+            )}
+
+            {live ? (
+              <div className="live-bar">
+                <span className={`dot ${live.status}`} aria-hidden />
+                <div className="grow">
+                  <div className="live-status" role="status">
+                    {STATUS[live.status]}
+                    <span className="muted small"> · started {fmtAgo(live.startedAt)}{SOURCE[live.source] ? ` · ${SOURCE[live.source]}` : ""}</span>
+                  </div>
+                  {params.length > 0 && (
+                    <div className="muted small clip">{params.map(([k, spec]) => `${labelOf(k, spec)} ${fmtValue(spec, live.params[k])}`).join(" · ")}</div>
+                  )}
+                </div>
+                <button className="stop" onClick={() => api.stop(live.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
+                  Stop
+                </button>
+              </div>
+            ) : (
+              <>
+                {params.length > 0 ? (
+                  <div className="run-form">
+                    <ParamForm
+                      params={script.params}
+                      values={values}
+                      invalid={invalid}
+                      onChange={(v) => {
+                        setValues(v);
+                        if (invalid.length) setInvalid(missing(script.params, v).filter((k) => invalid.includes(k)));
+                      }}
+                      onSubmit={() => start()}
+                    />
+                  </div>
+                ) : (
+                  !script.error && <p className="muted small">No inputs. It runs as it is.</p>
+                )}
+                <div className="actions">
+                  <button ref={runButton} className="primary run-btn" onClick={() => start()} disabled={!!script.error} aria-keyshortcuts="Control+Enter">
+                    Run
+                  </button>
+                  <span className="kbd-hint muted small" aria-hidden>
+                    {MOD}+Enter
+                  </span>
+                </div>
+              </>
+            )}
+
+            {msg && (
+              <div className={`msg ${msg.tone}`} role={msg.tone === "bad" ? "alert" : "status"}>
+                {msg.text}
+                {msg.undo && (
+                  <>
+                    {" "}
+                    <button
+                      className="link"
+                      onClick={() => {
+                        msg.undo!();
+                        setMsg(null);
+                      }}
+                    >
+                      Undo
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {run && (
+              <section className="run-output" aria-label="Output">
+                {!live && (
+                  <div className="run-head small">
+                    <span className={`dot ${run.status}`} aria-hidden />
+                    <span className={run.status === "failed" ? "bad-text" : ""}>{STATUS[run.status]}</span>
+                    <span className="muted">
+                      {fmtAgo(run.endedAt ?? run.startedAt)}
+                      {SOURCE[run.source] ? ` · ${SOURCE[run.source]}` : ""}
+                    </span>
+                    <span className="grow" />
+                    <button className="link" onClick={() => setShownRun(null)}>
+                      Clear
+                    </button>
+                  </div>
+                )}
+                <RunOutput
+                  key={run.id}
+                  run={run}
+                  onAnswer={(id, v) => api.answer(run.id, id, v).catch((e) => setMsg({ text: e.message, tone: "bad" }))}
+                  footer={
+                    (run.status === "failed" || shownIsOld) && (
+                      <div className="row wrap after-run">
+                        {shownIsOld && (
+                          <button
+                            onClick={() => {
+                              const before = values;
+                              setValues({ ...values, ...run.params });
+                              setMsg({ text: "Filled the form with this run's values.", tone: "note", undo: () => setValues(before) });
+                            }}
+                          >
+                            Use these values
+                          </button>
+                        )}
+                        {run.status === "failed" && agent && <button onClick={() => fixFailure(run)}>Fix with {agentName}</button>}
+                      </div>
+                    )
+                  }
+                />
+              </section>
+            )}
+          </div>
+        )}
+
+        {tab === "history" && (
+          <div role="tabpanel" id="panel-history" aria-labelledby="tab-history">
+            {history.length === 0 && <p className="muted small">No runs yet.</p>}
+            <ul className="hist">
+              {history.map((h) => (
+                <li key={h.id}>
+                  <button
+                    className={`hist-row ${h.id === runId ? "on" : ""}`}
+                    onClick={() => {
+                      setShownRun(h.id);
+                      setTab("run");
+                    }}
+                  >
+                    <span className={`dot ${h.status}`} aria-hidden />
+                    <span className="hist-main">
+                      <span className={h.status === "failed" ? "bad-text" : ""}>{STATUS[h.status]}</span>
+                      <span className="muted">
+                        {" "}
+                        {fmtAgo(h.startedAt)}
+                        {h.endedAt ? ` · ${fmtDur(h.endedAt - h.startedAt)}` : ""}
+                        {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
+                      </span>
+                      {Object.keys(h.params).length > 0 && <span className="hist-params">{fmtParams(h.params, script.params)}</span>}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {tab === "schedule" && (
+          <SchedulePanel
+            key={`${schedule?.enabled}:${schedule?.every}:${JSON.stringify(schedule?.params)}`}
+            api={api}
+            script={script}
+            schedule={schedule}
+            last={schedLast}
+            values={values}
+            onMissing={(keys) => {
+              setTab("run");
+              setInvalid(keys);
+              requestAnimationFrame(() => document.getElementById(fieldId(keys[0]!))?.focus());
+            }}
+            onShowRun={(id) => {
+              setShownRun(id);
+              setTab("run");
+            }}
+          />
+        )}
+      </div>
+
+      {editWith && (
+        <EditWithDialog
+          title={editWith.title}
+          harnesses={state.harnesses}
+          initial={editWith.text}
+          onClose={() => setEditWith(null)}
+          onSubmit={(h, what) => {
+            setEditWith(null);
+            api
+              .editWith(script.id, h.id, what)
+              .then(() => setMsg({ text: `Opened ${h.name} in a terminal.`, tone: "note" }))
+              .catch((e) => setMsg({ text: e.message, tone: "bad" }));
+          }}
+        />
+      )}
+    </aside>
+  );
+}

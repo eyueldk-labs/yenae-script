@@ -26,6 +26,8 @@ export interface ScriptInfo {
   schedule?: ScriptMeta["schedule"];
   /** No defineScript: runs as-is, no form. */
   plain: boolean;
+  /** Icon name from defineScript, shown on the script's tile. */
+  icon?: string;
   /** The file calls ask.* itself, so a run can stop and wait for an answer. Helpers in lib/ aren't seen. */
   asks: boolean;
   error?: string;
@@ -197,6 +199,7 @@ export async function scanWorkspace(workspace: string, store: Store): Promise<{ 
             if (meta) {
               info.name = meta.name || info.name;
               info.description = meta.description;
+              if (typeof meta.icon === "string") info.icon = meta.icon;
               info.params = meta.params ?? {};
               info.schedule = meta.schedule;
             } else info.plain = true;
