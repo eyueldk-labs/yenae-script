@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { MessageCircleQuestion } from "lucide-react";
 import { isTauri, pickPath, type AskRequest, type RunDetail, type RunEvent, type ShowItem } from "./api";
 
 export function RunOutput({
@@ -206,6 +207,7 @@ function AskCard({ req, onAnswer }: { req: AskRequest; onAnswer: (v: unknown) =>
     return (
       <div className="ask" role="group" aria-labelledby={qid}>
         <div className="ask-q" id={qid}>
+          <MessageCircleQuestion size={18} className="ask-icon" aria-hidden />
           {req.message}
         </div>
         <div className="row">
@@ -223,6 +225,7 @@ function AskCard({ req, onAnswer }: { req: AskRequest; onAnswer: (v: unknown) =>
     return (
       <div className="ask" role="group" aria-labelledby={qid}>
         <div className="ask-q" id={qid}>
+          <MessageCircleQuestion size={18} className="ask-icon" aria-hidden />
           {req.message}
         </div>
         <div className="choices">
@@ -246,6 +249,7 @@ function AskCard({ req, onAnswer }: { req: AskRequest; onAnswer: (v: unknown) =>
       }}
     >
       <label className="ask-q" htmlFor="ask-input" id={qid}>
+        <MessageCircleQuestion size={18} className="ask-icon" aria-hidden />
         {req.message}
       </label>
       <div className="row">

@@ -368,7 +368,7 @@ export function Panel({
                     <span className="muted small"> · started {fmtAgo(live.startedAt)}{SOURCE[live.source] ? ` · ${SOURCE[live.source]}` : ""}</span>
                   </div>
                   {params.length > 0 && (
-                    <div className="muted small clip">{params.map(([k, spec]) => `${labelOf(k, spec)} ${fmtValue(spec, live.params[k])}`).join(" · ")}</div>
+                    <div className="muted small">{params.map(([k, spec]) => `${labelOf(k, spec)} ${fmtValue(spec, live.params[k])}`).join(" · ")}</div>
                   )}
                 </div>
                 <button className="ghost stop" onClick={() => api.stop(live.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>

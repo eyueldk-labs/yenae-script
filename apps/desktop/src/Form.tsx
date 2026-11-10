@@ -34,6 +34,12 @@ export function missing(params: Record<string, ParamSpec>, values: Record<string
     .map(([k]) => k);
 }
 
+/** "Older than (days)" -> { name: "Older than", unit: "days" }, so values read "30 days". */
+export function splitUnit(label: string) {
+  const m = /^(.*\S)\s*\(([^()]{1,16})\)$/.exec(label);
+  return m ? { name: m[1]!, unit: m[2]! } : { name: label, unit: "" };
+}
+
 /** Show a param value the way the form would, e.g. for a schedule's saved values. */
 export function fmtValue(spec: ParamSpec | undefined, v: unknown) {
   if (v === "" || v === undefined || v === null) return "–";
@@ -96,7 +102,7 @@ function Field({
   invalid: boolean;
   onChange: (v: unknown) => void;
 }) {
-  const label = labelOf(id, spec);
+  const { name: label, unit } = splitUnit(labelOf(id, spec));
   const fid = fieldId(id, prefix);
   const hintId = `${fid}-hint`;
   const hint = (spec.description || invalid) && (
@@ -132,19 +138,38 @@ function Field({
         </select>
       );
       break;
-    case "number":
+    case "number": {
+      // A number with − and + either side, and its unit after it ("30 days").
+      const n = typeof value === "number" ? value : Number(value) || 0;
+      const step = (d: number) => {
+        let v = n + d;
+        if (spec.min !== undefined) v = Math.max(spec.min, v);
+        if (spec.max !== undefined) v = Math.min(spec.max, v);
+        onChange(v);
+      };
       input = (
-        <input
-          id={fid}
-          {...a11y}
-          type="number"
-          min={spec.min}
-          max={spec.max}
-          value={value === undefined || value === null ? "" : String(value)}
-          onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
-        />
+        <div className="stepper">
+          <button type="button" className="step" aria-label={`Less ${label}`} tabIndex={-1} onClick={() => step(-1)}>
+            −
+          </button>
+          <input
+            id={fid}
+            {...a11y}
+            type="number"
+            inputMode="numeric"
+            min={spec.min}
+            max={spec.max}
+            value={value === undefined || value === null ? "" : String(value)}
+            onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+          />
+          <button type="button" className="step" aria-label={`More ${label}`} tabIndex={-1} onClick={() => step(1)}>
+            +
+          </button>
+          {unit && <span className="unit">{unit}</span>}
+        </div>
       );
       break;
+    }
     case "file":
     case "folder":
       input = (

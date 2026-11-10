@@ -283,9 +283,7 @@ export function App() {
                   <span className="grow alert-text">
                     <b>{n.name}</b> {n.kind === "waiting" ? "is waiting for your answer" : `failed ${n.when}`}
                   </span>
-                  {n.id === selected ? (
-                    <span className="muted small open-tag">Open</span>
-                  ) : (
+                  {n.id === selected ? null : (
                     <button className={n.kind === "waiting" ? "primary small-btn" : "small-btn"} onClick={() => open(n.id, { run: n.run })}>
                       {n.kind === "waiting" ? "Answer" : "See why"}
                     </button>

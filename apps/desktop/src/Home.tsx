@@ -5,7 +5,7 @@ import { Glyph, hueOf } from "./icons";
 import { preferredHarness } from "./Dialogs";
 import { Menu, type MenuEntry } from "./Menu";
 import { NewFolderDialog } from "./Dialogs";
-import { defaults, fmtValue, labelOf, startValues } from "./Form";
+import { defaults, fmtValue, labelOf, splitUnit, startValues } from "./Form";
 import { fmtAgo, fmtEvery, fmtEveryShort, lastLabel, isLive } from "./fmt";
 import { folderOf, folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, type Target } from "./layoutOps";
 
@@ -183,7 +183,7 @@ export function Home({
       // button sit in its bottom corner (shown on hover or focus, and on touch screens).
       <div
         key={`${where}:${id}`}
-        className={`card ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
+        className={`card ${selected === id ? "sel" : ""} ${b?.kind === "running" ? "is-running" : ""} ${d ? `drop-${d}` : ""}`}
         draggable
         onContextMenu={(e) => {
           e.preventDefault();
@@ -238,7 +238,6 @@ export function Home({
           </span>
           <span className="card-name">
             {s.name}
-            {fav && !inFav && <Star size={13} fill="currentColor" className="fav name-star" aria-label="Favourite" />}
           </span>
           <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
           <CardFoot
@@ -250,9 +249,10 @@ export function Home({
             badge={b}
           />
         </button>
+        {b?.kind === "running" && <span className="run-bar" aria-hidden />}
         <span className="card-actions">
           <button
-            className={`ib ${fav ? "on-fav" : ""}`}
+            className={`ib star-btn ${fav ? "on-fav" : ""}`}
             aria-pressed={fav}
             title={fav ? "Remove from favourites" : "Add to favourites"}
             aria-label={`${fav ? "Remove" : "Add"} ${s.name} ${fav ? "from" : "to"} favourites`}
@@ -610,11 +610,13 @@ function shortValue(spec: ParamSpec, value: unknown) {
 function InputChip({ name, spec, value }: { name: string; spec: ParamSpec; value: unknown }) {
   const empty = value === undefined || value === "" || value === null;
   const url = typeof value === "string" && /^https?:\/\//.test(value);
-  const full = shortValue(spec, value);
+  // "Older than (days)" with 30 reads "Older than 30 days".
+  const { name: key, unit } = splitUnit(labelOf(name, spec));
+  const full = shortValue(spec, value) + (unit && !empty ? ` ${unit}` : "");
   const shown = full.length > 14 ? `${full.slice(0, 13)}…` : full;
   return (
     <span className={`chip ${empty ? "unset" : ""}`} title={[url ? String(value) : full, spec.description].filter(Boolean).join(". ")}>
-      <span className="chip-key">{labelOf(name, spec)}</span>
+      <span className="chip-key">{key}</span>
       <span className="chip-val">{empty ? (spec.optional ? "optional" : "not set") : shown}</span>
     </span>
   );
@@ -657,7 +659,11 @@ function CardFoot({ script, values, last, every, badge }: { script: Script; valu
         <span className="card-vals">
           {params
             .slice(0, 2)
-            .map(([k, p]) => `${labelOf(k, p)} ${shortValue(p, values[k]) || "not set"}`)
+            .map(([k, p]) => {
+              const { name: key, unit } = splitUnit(labelOf(k, p));
+              const v = shortValue(p, values[k]);
+              return `${key} ${v ? (unit ? `${v} ${unit}` : v) : "not set"}`;
+            })
             .join(" · ")}
         </span>
       )}
@@ -668,7 +674,6 @@ function CardFoot({ script, values, last, every, badge }: { script: Script; valu
         </span>
         {every && (
           <span className="every-tag">
-            {" · "}
             <Clock size={12} aria-hidden /> every {fmtEveryShort(every)}
           </span>
         )}
