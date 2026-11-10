@@ -1,0 +1,9 @@
+{
+  "name": "chrome-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "yenae-script": "file:../.yenae/sdk"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "yenae-script-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:engine": "bun packages/engine/src/main.ts --workspace examples/workspace --data .dev-data",
+    "dev:ui": "bun --cwd apps/desktop run dev",
+    "prepare:app": "bun scripts/prepare.ts",
+    "app:dev": "bun --cwd apps/desktop tauri dev",
+    "app:build": "bun --cwd apps/desktop tauri build",
+    "typecheck": "tsc -p packages/sdk && tsc -p packages/engine && tsc -p apps/desktop",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3",
+    "typescript": "^5.9",
+    "fflate": "^0.8.2"
+  }
+}

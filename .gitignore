@@ -1,0 +1,16 @@
+node_modules/
+dist/
+target/
+.dev-data/
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/resources/engine/
+apps/desktop/src-tauri/gen/
+examples/workspace/.yenae/
+examples/workspace/**/node_modules/
+examples/workspace/**/bun.lock
+*.log
+.DS_Store
+examples/workspace/.mcp.json
+examples/workspace/AGENTS.md
+examples/workspace/CLAUDE.md
+examples/workspace/.gitignore

@@ -1,0 +1,6 @@
+{
+  "name": "@yenae-script/engine",
+  "private": true,
+  "type": "module",
+  "dependencies": { "yenae-script": "workspace:*" }
+}
