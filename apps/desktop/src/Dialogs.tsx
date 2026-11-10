@@ -162,7 +162,7 @@ export function NewScriptDialog({
             onChange={(e) => setWhat(e.target.value)}
           />
           {agent ? (
-            <div className="hint">{agent.name} writes it for you. It opens in a new window and takes a minute or two.</div>
+            <div className="hint">We'll write the script for you. It takes a minute or two and opens in a new window.</div>
           ) : (
             state.harnesses.length === 0 && (
               <div className="hint">This makes an empty script. Install Claude Code, Codex, Gemini CLI or OpenCode to have one written for you.</div>

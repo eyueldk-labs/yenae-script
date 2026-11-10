@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Settings, X } from "lucide-react";
+import { flushSync } from "react-dom";
+import { Plus, Search, Settings, X } from "lucide-react";
 import { Api, connect, isTauri, type Layout, type RunDetail, type RunEvent, type State } from "./api";
 import { defaults, missing } from "./Form";
 import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
@@ -23,7 +24,7 @@ export function App() {
   const [editWith, setEditWith] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [announce, setAnnounce] = useState("");
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const search = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -117,7 +118,7 @@ export function App() {
   const [allAlerts, setAllAlerts] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs]);
+  const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs, tick]);
 
   // The tray says how many things need you while the window is hidden.
   useEffect(() => {
@@ -140,13 +141,40 @@ export function App() {
     return () => off?.();
   }, []);
 
+  // Opening or closing a panel changes how many columns fit. Where the browser can, the
+  // cards glide to their new places, and the chosen card is brought back into view.
+  const glide = (update: () => void, focusId?: string | null) => {
+    const vt = (document as any).startViewTransition as undefined | ((cb: () => void) => unknown);
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (vt && !reduce) {
+      // A transition that gets skipped (another one started) is fine: the update still happens.
+      const t = vt.call(document, () => flushSync(update)) as { ready?: Promise<void>; finished?: Promise<void>; updateCallbackDone?: Promise<void> };
+      for (const p of [t?.ready, t?.finished, t?.updateCallbackDone]) p?.catch(() => {});
+    } else update();
+    if (focusId)
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(`.home [data-tile][data-id="${CSS.escape(focusId)}"]`)?.scrollIntoView({ block: "nearest" }),
+      );
+  };
+  // The animated close applies a frame later; a second Escape meanwhile must not close again.
+  const closing = useRef(false);
   const open = (id: string, at: Omit<Opening, "key"> = {}) => {
-    setSelected(id);
-    setOpening((o) => ({ ...at, key: o.key + 1 }));
+    closing.current = false;
+    const change = () => {
+      setSelected(id);
+      setOpening((o) => ({ ...at, key: o.key + 1 }));
+    };
+    if (selected) change();
+    else glide(change, id);
   };
   const close = () => {
+    if (closing.current) return;
+    closing.current = true;
     const was = selected;
-    setSelected(null);
+    glide(() => {
+      setSelected(null);
+      closing.current = false;
+    }, was);
     setWide(false);
     // Back to the tile the panel came from.
     requestAnimationFrame(() => ((was && document.querySelector<HTMLElement>(`[data-tile][data-id="${CSS.escape(was)}"]`)) || search.current)?.focus());
@@ -180,7 +208,7 @@ export function App() {
         search.current?.select();
       } else if (e.key === "Escape") {
         if (typing && t !== search.current) t.blur();
-        else if (selected) close();
+        else if (selected && !closing.current) close();
         else if (query) {
           setQuery("");
           search.current?.focus();
@@ -220,6 +248,7 @@ export function App() {
               <span className="wordmark-text">Yenae Script</span>
             </span>
             <div className="search">
+              <Search size={16} className="search-icon" aria-hidden />
               <input
                 ref={search}
                 type="search"

@@ -184,6 +184,7 @@ export function Home({
       <div
         key={`${where}:${id}`}
         className={`card ${selected === id ? "sel" : ""} ${b?.kind === "running" ? "is-running" : ""} ${d ? `drop-${d}` : ""}`}
+        style={{ viewTransitionName: where === "results" ? undefined : `c-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}` }}
         draggable
         onContextMenu={(e) => {
           e.preventDefault();
@@ -324,22 +325,20 @@ export function Home({
           onTileDrop(f.id, true, false, zone(e, false));
         }}
       >
-        <span className="tile-icon folder-icon" title={worst ? worst.text : undefined}>
+        <span className="tile-icon folder-icon">
           <FolderOpen size={19} aria-hidden />
-          {worst && <span className={`dot ${worst.kind === "error" ? "failed" : worst.kind} folder-dot`} aria-hidden />}
         </span>
         <span className="folder-text">
           <span className="card-name">{f.name}</span>
           <span className="card-sub">
             {kids.length} script{kids.length === 1 ? "" : "s"}
+            {worst && (
+              <span className={`folder-note ${worst.kind}`}>
+                {" · "}
+                {worst.kind === "waiting" ? "1 needs you" : worst.kind === "running" ? "1 running" : "1 failed"}
+              </span>
+            )}
           </span>
-        </span>
-        <span className="kids" aria-hidden>
-          {kids.slice(0, 3).map((k) => (
-            <span key={k.id} className={`kid hue-${hueOf(k.id)}`}>
-              <Glyph script={k} size={12} />
-            </span>
-          ))}
         </span>
       </button>
     );
@@ -631,25 +630,39 @@ function asksFor(s: Script) {
 
 /** The bottom of a card: two inputs (then "+2 more"), then one line every card has: how it is doing, and its schedule. */
 function CardFoot({ script, values, last, every, badge }: { script: Script; values: Record<string, unknown>; last: RunSummary | null; every?: string; badge: Badge }) {
-  const params = Object.entries(script.params);
+  const all = Object.entries(script.params);
+  const empty = (k: string) => values[k] === "" || values[k] === undefined || values[k] === null;
+  // Inputs that still need a value are said once, in the status line ("Needs setup: File").
+  const unset = all.filter(([k, p]) => empty(k) && !p.optional && p.kind !== "boolean");
+  const params = all.filter(([k]) => !empty(k));
   const rest = params.slice(2);
   const done = last && !isLive(last) ? last : null;
   // Status is a dot and a few words, the same on every card; the strip at the top is the loud one.
   const status = badge
     ? { kind: badge.kind === "error" ? "failed" : badge.kind, text: badge.kind === "waiting" ? "Waiting for your answer" : badge.kind === "running" ? "Running now" : badge.text }
-    : done
-      ? { kind: done.status === "ok" ? "ok" : "idle", text: lastLabel(done) }
-      : { kind: "idle", text: "Not run yet" };
+    : unset.length
+      ? { kind: "waiting", text: `Needs setup: ${unset.map(([k, p]) => splitUnit(labelOf(k, p)).name).join(", ")}` }
+      : done
+        ? { kind: done.status === "ok" ? "ok" : "idle", text: lastLabel(done) }
+        : { kind: "idle", text: "Not run yet" };
   return (
     <>
       {params.length > 0 && (
         <span className="card-foot">
-          {params.slice(0, 2).map(([k, p]) => (
-            <InputChip key={k} name={k} spec={p} value={values[k]} />
+          {/* Two chips on a roomy card, one on a narrow one (the card's own width decides). */}
+          {params.slice(0, 2).map(([k, p], i) => (
+            <span key={k} className={i === 1 ? "second" : ""}>
+              <InputChip name={k} spec={p} value={values[k]} />
+            </span>
           ))}
           {rest.length > 0 && (
-            <span className="chip more" title={rest.map(([k, p]) => labelOf(k, p)).join(", ")}>
+            <span className="chip more wide-only" title={rest.map(([k, p]) => labelOf(k, p)).join(", ")}>
               +{rest.length} more
+            </span>
+          )}
+          {params.length > 1 && (
+            <span className="chip more narrow-only" title={params.slice(1).map(([k, p]) => labelOf(k, p)).join(", ")}>
+              +{params.length - 1} more
             </span>
           )}
         </span>
@@ -662,7 +675,7 @@ function CardFoot({ script, values, last, every, badge }: { script: Script; valu
             .map(([k, p]) => {
               const { name: key, unit } = splitUnit(labelOf(k, p));
               const v = shortValue(p, values[k]);
-              return `${key} ${v ? (unit ? `${v} ${unit}` : v) : "not set"}`;
+              return `${key} ${unit ? `${v} ${unit}` : v}`;
             })
             .join(" · ")}
         </span>

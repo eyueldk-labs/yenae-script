@@ -219,8 +219,8 @@ export function Panel({
                   <div className="run-head small">
                     <span className={`dot ${run.status}`} aria-hidden />
                     <span className={run.status === "failed" ? "bad-text" : ""}>{STATUS[run.status]}</span>
-                    <span className="muted">
-                      · {fmtAgo(run.endedAt ?? run.startedAt)}
+                    <span className="muted" title={new Date(run.startedAt).toLocaleString()}>
+                      · {clock(run.startedAt)} ({fmtAgo(run.endedAt ?? run.startedAt)})
                       {SOURCE[run.source] ? ` · ${SOURCE[run.source]}` : ""}
                     </span>
                     <span className="grow" />
@@ -253,9 +253,10 @@ export function Panel({
                           </button>
                         )}
                         {run.status === "failed" && agent && (
-                          <button onClick={() => fixFailure(run)} title={`Asks ${agent.name} to find and fix the problem, in a new window`}>
-                            Help me fix this
-                          </button>
+                          <>
+                            <button onClick={() => fixFailure(run)}>Ask {short(agent.name)} to fix it</button>
+                            <span className="muted small">Opens a window where it works on the fix.</span>
+                          </>
                         )}
                       </div>
                     )
@@ -306,7 +307,7 @@ export function Panel({
         {(
           [
             ["run", "Run", ""],
-            ["history", "History", history.length ? String(history.length) : ""],
+            ["history", "History", ""],
             ["schedule", "Schedule", ""],
           ] as const
         ).map(([id, label, extra]) => (
@@ -351,9 +352,10 @@ export function Panel({
                 </details>
                 {agent && (
                   <div className="row wrap after-run">
-                    <button onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })} title={`Asks ${agent.name} to fix it, in a new window`}>
-                      Help me fix this
+                    <button onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}>
+                      Ask {short(agent.name)} to fix it
                     </button>
+                    <span className="muted small">Opens a window where it works on the fix.</span>
                   </div>
                 )}
               </div>
@@ -365,14 +367,14 @@ export function Panel({
                 <div className="grow">
                   <div className="live-status" role="status">
                     {STATUS[live.status]}
-                    <span className="muted small"> · started {fmtAgo(live.startedAt)}{SOURCE[live.source] ? ` · ${SOURCE[live.source]}` : ""}</span>
                   </div>
-                  {params.length > 0 && (
-                    <div className="muted small">{params.map(([k, spec]) => `${labelOf(k, spec)} ${fmtValue(spec, live.params[k])}`).join(" · ")}</div>
-                  )}
+                  <div className="muted small">
+                    Started {fmtAgo(live.startedAt)}
+                    {SOURCE[live.source] ? ` · ${SOURCE[live.source]}` : ""}
+                  </div>
                 </div>
-                <button className="ghost stop" onClick={() => api.stop(live.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
-                  Stop run
+                <button className="stop small-btn" onClick={() => api.stop(live.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
+                  Stop
                 </button>
               </div>
             ) : (
@@ -405,7 +407,7 @@ export function Panel({
                   <button ref={runButton} className="primary run-btn" onClick={() => start()} disabled={!!script.error} aria-keyshortcuts="Control+Enter" title={`Run (${MOD}+Enter)`}>
                     Run now
                   </button>
-                  {!run && <span className="muted small">{last ? `Last run: ${lastLabel(last).toLowerCase()}` : "Not run yet"}</span>}
+                  {!run && <span className="muted small">{last ? `Last run: ${lastLabel(last)}` : "Not run yet"}</span>}
                 </div>
               </>
             )}
@@ -542,6 +544,9 @@ function groupByDay<T extends { startedAt: number }>(list: T[]): [string, T[]][]
   }
   return out;
 }
+
+/** "Claude Code" -> "Claude", "Gemini CLI" -> "Gemini": the assistant, not the tool. */
+const short = (name: string) => name.replace(/\s+(Code|CLI)$/i, "");
 
 const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 

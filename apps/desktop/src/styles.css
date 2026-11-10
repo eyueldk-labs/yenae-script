@@ -139,9 +139,9 @@ label.check { display: inline-flex; align-items: center; gap: 8px; cursor: point
 .hue-0 { --hue: #5e71bd; } .hue-1 { --hue: #437ba4; } .hue-2 { --hue: #35817f; }
 .hue-3 { --hue: #368457; } .hue-4 { --hue: #8166c1; } .hue-5 { --hue: #6b7789; }
 /* An icon tile: the script's colour as a soft tint, its icon in the full colour. */
-.tile-icon, .panel-glyph, .kid, .glyph { --tint: color-mix(in srgb, var(--hue) 14%, var(--bg)); --fg: var(--hue); background: var(--tint); color: var(--fg); }
+.tile-icon, .panel-glyph, .glyph { --tint: color-mix(in srgb, var(--hue) 14%, var(--bg)); --fg: var(--hue); background: var(--tint); color: var(--fg); }
 @media (prefers-color-scheme: dark) {
-  .tile-icon, .panel-glyph, .kid, .glyph { --tint: color-mix(in srgb, var(--hue) 30%, var(--bg)); --fg: color-mix(in srgb, var(--hue) 55%, #fff); }
+  .tile-icon, .panel-glyph, .glyph { --tint: color-mix(in srgb, var(--hue) 30%, var(--bg)); --fg: color-mix(in srgb, var(--hue) 55%, #fff); }
 }
 
 /* Shell: the catalog, and the script panel beside it */
@@ -156,6 +156,10 @@ label.check { display: inline-flex; align-items: center; gap: 8px; cursor: point
 .logo { width: 24px; height: 24px; flex: none; color: var(--brand); }
 .bar .search { flex: 0 1 320px; min-width: 120px; position: relative; }
 .search input::-webkit-search-cancel-button { display: none; }
+/* Search: a soft filled field with its icon inside. */
+.search input { padding-left: 36px; border-radius: 10px; background: var(--panel); border-color: var(--line); }
+.search input:focus { background: var(--bg); }
+.search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; padding: 0; border: 0; display: grid; place-items: center; color: var(--muted); background: none; }
 .arrange-bar { background: var(--panel); border-bottom: 1px solid var(--line); }
 .ib { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 32px; height: 32px; padding: 0 6px; border: 0; background: none; color: var(--muted); border-radius: var(--radius); }
@@ -189,14 +193,12 @@ button.card { padding: 0; text-align: left; white-space: normal; cursor: pointer
 .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .tile-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; }
 .folder-icon { --tint: var(--panel); --fg: var(--muted); }
-.kids { display: flex; }
-.kid { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--bg); }
-.kid + .kid { margin-left: -4px; }
 /* The star is always there (faint until it is on); the menu shows on hover or focus. */
 .card-actions { position: absolute; top: 12px; right: 10px; display: flex; flex-direction: row-reverse; gap: 0; }
 .card-actions .ib:not(.star-btn) { opacity: 0; transition: opacity 120ms; }
 .card:hover .card-actions .ib, .card:focus-within .card-actions .ib { opacity: 1; }
 .star-btn:not(.on-fav) { opacity: 0.45; }
+.card-actions .ib:not(.star-btn) { opacity: 0.4; }
 @media (hover: none) { .card-actions .ib { opacity: 1; } }
 .card-actions .ib { width: 28px; height: 28px; min-width: 28px; border-radius: 8px; }
 .card-actions .ib:hover:not(:disabled) { background: var(--hover); }
@@ -206,10 +208,13 @@ button.card { padding: 0; text-align: left; white-space: normal; cursor: pointer
 .card-name { font-family: var(--display); font-size: 15px; font-weight: 650; letter-spacing: -0.005em; line-height: 1.25; overflow-wrap: break-word; }
 .card-sub { font-size: 13.5px; line-height: 1.4; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* Folders: a strip of chips above the scripts, each with its name, count and first few icons. */
-.folders { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-button.card.folder { flex-direction: row; align-items: center; gap: 12px; padding: 9px 12px 9px 10px; min-width: 220px; min-height: 58px; }
+.folders { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.app.has-panel .folders { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+button.card.folder { flex-direction: row; align-items: center; gap: 12px; padding: 10px 12px; min-height: 60px; }
+.folder-note.waiting { color: var(--warn-text); }
+.folder-note.failed, .folder-note.error { color: var(--bad); }
+.folder-note.running { color: var(--run); }
 .folder-icon { position: relative; --tint: color-mix(in srgb, var(--brand) 12%, var(--bg)); --fg: var(--brand); }
-.folder-dot { position: absolute; top: -2px; right: -2px; box-shadow: 0 0 0 2px var(--bg); }
 .folder-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .folder-text .card-sub { -webkit-line-clamp: 1; }
 .card.folder.open { box-shadow: 0 0 0 1px var(--control-line); }
@@ -236,14 +241,26 @@ button.card.folder { flex-direction: row; align-items: center; gap: 12px; paddin
 .new-folder.over { border-color: var(--text); color: var(--text); background: var(--panel); }
 .prefill { margin: -4px 0 0; }
 /* The bottom of a card: inputs as chips, then how it last went (room kept for the corner buttons). */
-.card-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 8px; }
-.card-foot .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; background: var(--chip); border-color: transparent; }
+/* One line of chips: they shrink before they wrap; "+n more" always shows. */
+.card { container-type: inline-size; }
+.card-foot { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin-top: 8px; min-width: 0; overflow: hidden; }
+.card-foot > span { min-width: 0; display: flex; }
+.card-foot > span:first-child { flex: 0 1 auto; }
+.card-foot .chip { min-width: 0; overflow: hidden; background: var(--chip); border-color: transparent; }
+.card-foot .chip-val { overflow: hidden; text-overflow: ellipsis; }
+.card-foot .chip.more { flex: none; }
+.card-foot .narrow-only { display: none; }
+@container (max-width: 300px) {
+  .card-foot .second, .card-foot .wide-only { display: none; }
+  .card-foot .narrow-only { display: inline-flex; }
+}
 .chip.more { color: var(--muted); }
 /* Every card ends with the same line: a status dot, how it is doing, and its schedule. */
-.card-last { margin-top: auto; padding-top: 10px; display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; font-size: 13px; line-height: 19px; color: var(--muted); white-space: nowrap; }
-.card-status { flex: none; }
+.card-last { margin-top: auto; padding-top: 10px; display: flex; flex-wrap: nowrap; align-items: center; column-gap: 6px; min-width: 0; font-size: 13px; line-height: 19px; color: var(--muted); white-space: nowrap; }
+.card-status { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .card-last.status-failed .card-status, .card-last.status-waiting .card-status { color: var(--text); font-weight: 500; }
-.card-last .every-tag { flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+.card-last .every-tag { min-width: 0; display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; }
+.card-last .every-tag svg { flex: none; }
 
 .card-vals { display: none; }
 /* A run that just finished: its line glows briefly. */
@@ -326,9 +343,9 @@ details.more[open] > summary { margin-bottom: 12px; }
 .live-status { font-weight: 500; }
 .live-status > span { white-space: nowrap; }
 .clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Stop is there when needed, but quiet: a text button that turns red on hover. */
-button.stop { color: var(--muted); border-color: transparent; background: none; }
-button.stop:hover:not(:disabled) { color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+/* Stop: a small outlined button in red, plainly a button. */
+button.stop { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--bg)); background: var(--bg); min-height: 32px; align-self: flex-start; }
+button.stop:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 8%, var(--bg)); }
 .run-output { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 .output.live { min-height: 180px; }
 /* A failure: always the same box, right under the tabs and above the form. */
@@ -409,7 +426,12 @@ button.stop:hover:not(:disabled) { color: var(--bad); background: color-mix(in s
   .card-name { grid-area: name; }
   .card-sub { grid-area: sub; -webkit-line-clamp: 1; }
   .card-vals { grid-area: vals; display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card-foot, .card-actions { display: none; }
+  .card-foot { display: none; }
+  /* Touch: the star and menu stay at the right of each row. */
+  .card-main { padding-right: 84px; }
+  .card-actions { top: 50%; transform: translateY(-50%); right: 8px; }
+  .card-actions .ib { width: 36px; height: 36px; opacity: 1 !important; }
+  .card-actions .star-btn:not(.on-fav) { opacity: 0.45 !important; }
 
 }
 
@@ -437,6 +459,9 @@ button.stop:hover:not(:disabled) { color: var(--bad); background: color-mix(in s
 /* Output */
 .output { flex: 1; display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .log { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* What a script printed sits in a quiet box; the technical fold keeps lines whole and scrolls. */
+.output > pre.log:not(.err) { background: var(--code); padding: 8px 10px; border-radius: var(--radius); }
+details.tech > pre.log { white-space: pre; overflow-wrap: normal; overflow-x: auto; background: var(--code); padding: 8px 10px; border-radius: var(--radius); }
 .log.err { color: var(--bad); font-family: inherit; font-size: 14px; font-weight: 500; line-height: 1.45; }
 .sys { color: var(--muted); font-size: 12.5px; }
 .after-run { margin-top: 4px; }

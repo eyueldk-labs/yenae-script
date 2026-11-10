@@ -61,7 +61,7 @@ export function lastLabel(r: RunSummary) {
   return `${STATUS[r.status]} ${fmtAgo(r.endedAt ?? r.startedAt)}`;
 }
 
-export const SOURCE: Record<RunSummary["source"], string> = { manual: "", schedule: "automatic run", mcp: "run by an assistant" };
+export const SOURCE: Record<RunSummary["source"], string> = { manual: "", schedule: "scheduled", mcp: "run by an assistant" };
 
 /** "10m" -> "10 minutes", "1d" -> "day", for "every …". */
 export function fmtEvery(every: string) {
