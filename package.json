@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev:engine": "bun packages/engine/src/main.ts --workspace examples/workspace --data .dev-data",
-    "dev:ui": "bun --cwd apps/desktop run dev",
+    "dev:ui": "bun run --cwd apps/desktop dev",
     "prepare:app": "bun scripts/prepare.ts",
     "app:dev": "bun --cwd apps/desktop tauri dev",
     "app:build": "bun --cwd apps/desktop tauri build",
