@@ -115,6 +115,7 @@ export function App() {
   const script = state?.scripts.find((s) => s.id === selected) ?? null;
   if (state) setHueIds(state.scripts.map((s) => s.id));
   const [allAlerts, setAllAlerts] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs]);
 
@@ -208,7 +209,7 @@ export function App() {
     <div className={`app ${script ? "has-panel" : ""} ${wide ? "wide" : ""}`}>
       <div className="catalog">
         {(
-          <div className="bar">
+          <div className={`bar ${scrolled ? "scrolled" : ""}`}>
             <span className="wordmark">
               <svg className="logo" viewBox="0 0 24 24" aria-hidden>
                 <rect width="24" height="24" rx="7" fill="currentColor" />
@@ -270,7 +271,7 @@ export function App() {
             </button>
           </div>
         )}
-        <main className="catalog-body">
+        <main className="catalog-body" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}>
           {!query && alerts.length > 0 && (
             // What needs the user: one row each, each with the one thing to do about it. Two at most
             // until "more" is pressed. An alert for the script already open is hidden (the panel says it).
@@ -309,6 +310,10 @@ export function App() {
             onRun={quickRun}
             onEditWith={(id) => setEditWith(id)}
             query={query}
+            onClearSearch={() => {
+              setQuery("");
+              search.current?.focus();
+            }}
           />
         </main>
       </div>

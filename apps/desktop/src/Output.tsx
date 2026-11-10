@@ -44,31 +44,45 @@ export function RunOutput({
     return m;
   }, [run.events]);
 
-  // Everything only a developer needs goes in one fold at the end: how long a failed run
-  // took, its values, the raw error when it was reworded, and the stack trace.
-  const failed = run.status === "failed";
-  const endIdx = failed ? run.events.map((e) => e.t).lastIndexOf("sys") : -1;
-  const details = useMemo(() => {
-    const out: string[] = [];
-    if (endIdx >= 0) out.push((run.events[endIdx] as { text: string }).text);
-    out.push(...tech);
-    for (const e of run.events) {
-      if (e.t !== "err") continue;
-      const lines = e.text.replace(/\n$/, "").split("\n");
-      for (const l of lines) if (/^\s+at\s/.test(l) || (l.trim() && friendlyError(l))) out.push(l);
-    }
-    return out;
-  }, [run.events, endIdx, tech.join("\n")]);
+  // A failed run leads with what went wrong, in plain words. Everything only a developer
+  // needs (the log, timing, values, raw error and stack) waits in one fold. Results it
+  // showed before failing stay visible.
+  if (run.status === "failed") {
+    const errText = run.events.filter((e) => e.t === "err").map((e) => (e as { text: string }).text).join("");
+    const first = errText.split("\n").find((l) => l.trim() && !/^\s+at\s/.test(l)) ?? run.error ?? "";
+    const message = first ? (friendlyError(first) ?? plainError(first)) : "Something went wrong while it ran.";
+    const details = [
+      ...run.events.flatMap((e) => (e.t === "out" || e.t === "err" || e.t === "sys" ? [e.text.replace(/\n$/, "")] : [])),
+      ...tech,
+    ];
+    return (
+      <div className="output">
+        <p className="fail-msg">{message}</p>
+        {run.events.map((e, i) => (e.t === "show" ? <Show key={i} item={e.item} /> : null))}
+        <details className="tech">
+          <summary>Technical details</summary>
+          <pre className="log">{details.join("\n")}</pre>
+        </details>
+        {footer}
+        <div ref={end} />
+      </div>
+    );
+  }
+
+  // Stack traces fold away; the message above them reads as a sentence.
+  const stack = run.events.flatMap((e) => (e.t === "err" ? e.text.split("\n").filter((l) => /^\s+at\s/.test(l)) : []));
 
   return (
     <div className={`output ${live ? "live" : ""}`}>
       {run.events.length === 0 && run.status === "running" && <div className="muted">Starting…</div>}
-      {run.events.map((e, i) => (i === endIdx ? null : <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />))}
+      {run.events.map((e, i) => (
+        <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />
+      ))}
       {pending && <AskCard key={pending.id} req={pending.request} onAnswer={(v) => onAnswer(pending.id, v)} />}
-      {!live && details.length > 0 && (
+      {!live && (stack.length > 0 || tech.length > 0) && (
         <details className="tech">
           <summary>Technical details</summary>
-          <pre className="log">{details.join("\n")}</pre>
+          <pre className="log">{[...tech, ...stack].join("\n")}</pre>
         </details>
       )}
       {!live && footer}

@@ -8,7 +8,7 @@ import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
 import { Menu, type MenuEntry } from "./Menu";
 import { Glyph, hueOf } from "./icons";
-import { MOD, SOURCE, STATUS, fmtAgo, fmtDur, fmtParams, isLive } from "./fmt";
+import { MOD, SOURCE, STATUS, fmtAgo, fmtDur, fmtParams, isLive, lastLabel } from "./fmt";
 import { store } from "./store";
 
 export type Tab = "run" | "history" | "schedule";
@@ -197,8 +197,8 @@ export function Panel({
     ...layout.items
       .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder" && i.id !== home?.id)
       .map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, script.id, f.id)) })),
-    ...(home ? [{ label: `Out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, script.id, null)) }] : []),
-    { label: "New folder", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
+    ...(home ? [{ label: `Move out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, script.id, null)) }] : []),
+    { label: "New folder…", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
     "separator",
     { heading: "For developers" },
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
@@ -390,8 +390,9 @@ export function Panel({
                 )}
                 <div className="actions">
                   <button ref={runButton} className="primary run-btn" onClick={() => start()} disabled={!!script.error} aria-keyshortcuts="Control+Enter" title={`Run (${MOD}+Enter)`}>
-                    Run
+                    Run now
                   </button>
+                  {!run && <span className="muted small">{last ? `Last run: ${lastLabel(last).toLowerCase()}` : "Not run yet"}</span>}
                 </div>
               </>
             )}
@@ -444,7 +445,7 @@ export function Panel({
                           <span className={`dot ${h.status}`} aria-hidden />
                           <span className="hist-main">
                             <span className="hist-line">
-                              <span className={h.status === "failed" ? "bad-text" : h.status === "waiting" ? "warn-text" : ""}>
+                              <span className="hist-status">
                                 {STATUS[h.status]}
                                 {count > 1 && ` ${count} times`}
                               </span>
@@ -456,7 +457,7 @@ export function Panel({
                                 {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
                               </span>
                             </span>
-                            {(err || (vals && vals !== prevVals)) && <span className={`hist-params ${err ? "bad-text" : ""}`}>{err || vals}</span>}
+                            {(err || (vals && vals !== prevVals)) && <span className="hist-params">{err || vals}</span>}
                           </span>
                           <ChevronRight size={16} className="hist-chev" aria-hidden />
                         </button>

@@ -186,23 +186,23 @@ export function NewScriptDialog({
               </div>
             )}
             <div className="field">
-              <label htmlFor="ns-project">Project</label>
+              <label htmlFor="ns-project">Group</label>
               <select id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
                 {state.projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.id}
                   </option>
                 ))}
-                <option value="">New project…</option>
+                <option value="">New group…</option>
               </select>
               {creatingProject && (
-                <input aria-label="New project name" placeholder="Project name" value={newProject} onChange={(e) => setNewProject(e.target.value)} />
+                <input aria-label="New group name" placeholder="Group name" value={newProject} onChange={(e) => setNewProject(e.target.value)} />
               )}
-              <div className="hint">A folder in your scripts folder. Scripts in one project share their npm packages.</div>
+              <div className="hint">Where the script is kept, inside your scripts folder.</div>
             </div>
             <div className="field">
-              <label htmlFor="ns-file">File</label>
-              <input id="ns-file" className="mono" placeholder={name ? `${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}.ts` : "backups/nightly.ts"} value={file} onChange={(e) => setFile(e.target.value)} />
+              <label htmlFor="ns-file">File name</label>
+              <input id="ns-file" placeholder={name ? `${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}.ts` : "Made from the name"} value={file} onChange={(e) => setFile(e.target.value)} />
             </div>
           </div>
         </details>
@@ -211,7 +211,7 @@ export function NewScriptDialog({
             {err}
           </div>
         )}
-        <div className="row wrap end">
+        <div className="row wrap end dialog-actions">
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
           </button>
@@ -267,7 +267,7 @@ export function EditWithDialog({
           </div>
         )}
         <div className="hint">{agent.name} opens in its own window and makes the change.</div>
-        <div className="row wrap end">
+        <div className="row wrap end dialog-actions">
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
           </button>
@@ -347,7 +347,7 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
             {err}
           </div>
         )}
-        <div className="row end">
+        <div className="row end dialog-actions">
           {workspace === state.workspace ? (
             // Nothing to save (autostart applies at once): one way out.
             <button type="button" className="primary" onClick={onClose}>
@@ -419,7 +419,7 @@ export function NewFolderDialog({
             </label>
           ))}
         </fieldset>
-        <div className="row end">
+        <div className="row end dialog-actions">
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
           </button>

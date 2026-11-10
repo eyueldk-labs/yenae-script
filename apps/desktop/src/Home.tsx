@@ -36,6 +36,7 @@ export function Home({
   onRun,
   onEditWith,
   query,
+  onClearSearch,
 }: {
   api: Api;
   state: State;
@@ -47,6 +48,7 @@ export function Home({
   onRun: (id: string) => void;
   onEditWith: (id: string) => void;
   query: string;
+  onClearSearch: () => void;
 }) {
   const byId = useMemo(() => new Map(state.scripts.map((s) => [s.id, s])), [state.scripts]);
   const [openFolder, setOpenFolder] = useState<string | null>(null);
@@ -149,7 +151,7 @@ export function Home({
           setRenaming(created);
         },
       },
-      ...(home ? [{ label: `Out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, id, null)) }] : []),
+      ...(home ? [{ label: `Move out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, id, null)) }] : []),
       "separator",
       { heading: "For developers" },
       { label: "Open file", onSelect: () => api.open(id).catch(() => {}) },
@@ -237,7 +239,7 @@ export function Home({
           </span>
           <span className="card-name">
             {s.name}
-            {fav && <Star size={13} fill="currentColor" className="fav name-star" aria-label="Favourite" />}
+            {fav && !inFav && <Star size={13} fill="currentColor" className="fav name-star" aria-label="Favourite" />}
           </span>
           <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
           <CardFoot
@@ -494,7 +496,10 @@ export function Home({
             {results.length} result{results.length === 1 ? "" : "s"}
           </h2>
           {results.length === 0 ? (
-            <p className="muted small">Nothing matches “{query}”.</p>
+            <div className="no-results">
+              <p>Nothing matches “{query}”.</p>
+              <button onClick={onClearSearch}>Clear search</button>
+            </div>
           ) : (
             <div className="tiles" data-tiles>
               {results.map((s) => scriptTile(s.id, "results", folderName(s.id) ? `in ${folderName(s.id)}` : undefined))}
@@ -590,11 +595,23 @@ export function Home({
 }
 
 /** One input as a chip: its label and the value it will run with ("Times 2", "Folder ext2"), or "not set". */
+/** A value in a few characters: a web address reads as the file or site it points at ("missing.zip"). */
+function shortValue(spec: ParamSpec, value: unknown) {
+  if (value === undefined || value === "" || value === null) return "";
+  if (spec.kind === "boolean") return value ? "on" : "off";
+  if (typeof value === "string" && /^https?:\/\//.test(value)) {
+    try {
+      const u = new URL(value);
+      return u.pathname.split("/").filter(Boolean).at(-1) ?? u.host;
+    } catch {}
+  }
+  return fmtValue(spec, value);
+}
+
 function InputChip({ name, spec, value }: { name: string; spec: ParamSpec; value: unknown }) {
   const empty = value === undefined || value === "" || value === null;
-  // A web address reads as the file or site it points at ("missing.zip", "example.com").
-  const url = typeof value === "string" && /^https?:\/\//.test(value) ? (() => { try { const u = new URL(value); return u.pathname.split("/").filter(Boolean).at(-1) ?? u.host; } catch { return null; } })() : null;
-  const full = empty ? "" : spec.kind === "boolean" ? (value ? "on" : "off") : (url ?? fmtValue(spec, value));
+  const url = typeof value === "string" && /^https?:\/\//.test(value);
+  const full = shortValue(spec, value);
   const shown = full.length > 14 ? `${full.slice(0, 13)}…` : full;
   return (
     <span className={`chip ${empty ? "unset" : ""}`} title={[url ? String(value) : full, spec.description].filter(Boolean).join(". ")}>
@@ -644,7 +661,16 @@ function CardFoot({ script, values, last, every, flagged }: { script: Script; va
           )}
         </span>
       )}
-      <span className="card-last">
+      {/* At phone width the chips give way to one line of values. */}
+      {params.length > 0 && (
+        <span className="card-vals">
+          {params
+            .slice(0, 2)
+            .map(([k, p]) => `${labelOf(k, p)} ${shortValue(p, values[k]) || "not set"}`)
+            .join(" · ")}
+        </span>
+      )}
+      <span className={`card-last ${done && Date.now() - (done.endedAt ?? 0) < 8000 ? "fresh" : ""}`} key={done?.id}>
         {every && (
           <span className="every-tag">
             <Clock size={12} aria-hidden /> Every {fmtEveryShort(every)}
