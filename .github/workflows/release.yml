@@ -1,9 +1,7 @@
 # Builds installers and attaches them to a draft GitHub release.
 #
 # Runs only when you push a version tag (v0.1.0) or start it by hand from the
-# Actions tab, so normal pushes use no Actions minutes. Windows is built by
-# default; pick "all" to also build macOS and Linux (macOS minutes cost 10x on
-# private repositories).
+# Actions tab, so normal pushes use no Actions minutes. Builds Windows and Linux.
 #
 # Release: set "version" in apps/desktop/src-tauri/tauri.conf.json, commit, then
 #   git tag v0.1.0 && git push origin v0.1.0
@@ -13,12 +11,6 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      platforms:
-        description: Which installers to build
-        type: choice
-        options: [windows, all]
-        default: windows
 
 concurrency:
   group: release-${{ github.ref }}
@@ -46,7 +38,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event.inputs.platforms == 'all' && '[{"os":"windows-latest","target":"x86_64-pc-windows-msvc"},{"os":"macos-latest","target":"aarch64-apple-darwin"},{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"}]' || '[{"os":"windows-latest","target":"x86_64-pc-windows-msvc"}]') }}
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          # 22.04 keeps the Linux build working on older distributions (glibc).
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write

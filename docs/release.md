@@ -6,7 +6,7 @@ The workflow is [`.github/workflows/release.yml`](../.github/workflows/release.y
 
 Either:
 
-- **From GitHub:** Actions → release → Run workflow. Pick `windows` (default) or `all` (adds macOS and Linux; macOS minutes cost 10× on private repos).
+- **From GitHub:** Actions → release → Run workflow.
 - **With a tag:** set `version` in `apps/desktop/src-tauri/tauri.conf.json`, commit, then:
 
   ```bash
@@ -17,9 +17,7 @@ Either:
   git push origin v0.1.0
   ```
 
-  A tag builds Windows only. Run the workflow by hand with `all` for the other platforms.
-
-The installers land on a **draft** release named `v<version>` (Releases page). Check it, then publish it.
+Both build Windows (`.exe` setup) and Linux (`.deb` and `.AppImage`). macOS is left out for now. The installers land on a **draft** release named `v<version>` (Releases page). Check it, then publish it.
 
 Two jobs run side by side:
 
@@ -31,7 +29,7 @@ Two jobs run side by side:
 - Engine, SDK and examples: tested on Linux (`bun test`), including running scripts, prompts, stop, schedules and MCP.
 - UI: checked in Chromium at desktop and phone widths, light and dark.
 - Tauri shell: compiles on Linux.
-- **Not verified:** Windows and macOS builds. Things to check by hand on the first Windows build:
+- **Not verified:** the Windows build. Things to check by hand on the first Windows build:
   - the bundled `bun.exe` starts and the window shows scripts
   - Browse buttons on file and folder inputs open the Windows picker
   - Stop ends a script and anything it started (uses `taskkill /T`)
@@ -40,4 +38,4 @@ Two jobs run side by side:
   - the tray tooltip says "1 needs you" when a schedule fails
   - `Ctrl+Shift+Space` shows the window with the cursor in search
 
-Code signing is left out. Unsigned Windows installers show a SmartScreen warning ("More info → Run anyway"). Unsigned macOS apps need right-click → Open the first time.
+Code signing is left out. Unsigned Windows installers show a SmartScreen warning ("More info → Run anyway").
