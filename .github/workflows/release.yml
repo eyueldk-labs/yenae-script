@@ -87,9 +87,16 @@ jobs:
             echo
             echo "Already installed? The app updates itself."
           } > body.md
-          gh release create "v$V" --draft --title "Yenae Script $V" --notes-file body.md --target "$GITHUB_SHA"
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"v$V\") | .id" | head -1)
+          # A draft left by an earlier, failed run of this version goes first.
+          for old in $(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=50" --jq ".[] | select(.draft and .tag_name == \"v$V\") | .id"); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$old"
+          done
+          # Created through the API so its id comes straight back (a draft isn't listed at once).
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" -f tag_name="v$V" -f target_commitish="$GITHUB_SHA" \
+            -f name="Yenae Script $V" -F draft=true -F body=@body.md --jq .id)
+          if [ -z "$id" ]; then echo "::error::Couldn't create the draft release"; exit 1; fi
           echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "Draft release $id"
       - uses: actions/upload-artifact@v4
         with:
           name: notes
