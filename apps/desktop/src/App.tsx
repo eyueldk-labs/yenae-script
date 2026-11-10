@@ -5,7 +5,7 @@ import { defaults, missing } from "./Form";
 import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
 import { Home, attentionOf } from "./Home";
 import { Panel, type Opening } from "./Panel";
-import { isLive } from "./fmt";
+import { fmtEvery, isLive } from "./fmt";
 import { toggleFavourite } from "./layoutOps";
 import { store } from "./store";
 import { setHueIds } from "./icons";
@@ -209,11 +209,13 @@ export function App() {
       <div className="catalog">
         {(
           <div className="bar">
-            <span className="wordmark">Yenae Script</span>
+            <span className="wordmark">
+              <span className="logo" aria-hidden />
+              <span className="wordmark-text">Yenae Script</span>
+            </span>
             <div className="search">
               <input
                 ref={search}
-                autoFocus
                 type="search"
                 aria-label="Search scripts"
                 placeholder="Search scripts"
@@ -235,6 +237,18 @@ export function App() {
                   }
                 }}
               />
+              {query && (
+                <button
+                  className="search-clear"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    setQuery("");
+                    search.current?.focus();
+                  }}
+                >
+                  <X size={14} aria-hidden />
+                </button>
+              )}
             </div>
             <span className="grow" />
             {!online && (
@@ -261,7 +275,18 @@ export function App() {
                   <span className={`dot ${n.kind}`} aria-hidden />
                   <span className="grow">
                     <b>{n.name}</b> {n.kind === "waiting" ? "needs your answer" : `failed ${n.when}`}
+                    {n.every && <span className="muted"> · runs every {fmtEvery(n.every)}</span>}
                   </span>
+                  {n.every && (
+                    <button
+                      onClick={() => {
+                        const sc = state.schedules.find((x) => x.script === n.id);
+                        if (sc) api.schedule(n.id, sc.every, sc.params, false).catch((e) => setError(e.message));
+                      }}
+                    >
+                      Pause
+                    </button>
+                  )}
                   <button className={n.kind === "waiting" ? "primary" : ""} onClick={() => open(n.id, { run: n.run })}>
                     {n.kind === "waiting" ? "Answer" : "See why"}
                   </button>

@@ -17,7 +17,7 @@ export const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 export function fmtTime(t: number) {
   const d = new Date(t);
   const today = new Date().toDateString() === d.toDateString();
-  return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+  return today ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
 }
 
 /** A time in the future: "now", "in 40 s", "in 4 min", "at 14:30". */
@@ -27,7 +27,7 @@ export function fmtWhen(t: number) {
   if (s < 60) return `in ${s} s`;
   if (s < 3600) return `in ${Math.round(s / 60)} min`;
   const d = new Date(t);
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
   if (days === 0) return `at ${time}`;
   if (days === 1) return `tomorrow at ${time}`;
@@ -70,4 +70,9 @@ export function fmtEvery(every: string) {
   const n = Number(m[1]);
   const unit = { s: "second", m: "minute", h: "hour", d: "day" }[(m[2] ?? "m").toLowerCase()[0] as "s" | "m" | "h" | "d"];
   return n === 1 ? unit : `${n} ${unit}s`;
+}
+
+/** "10m" -> "10 min", "1h" -> "hour", for tight places like cards. */
+export function fmtEveryShort(every: string) {
+  return fmtEvery(every).replace(/minutes?/, "min").replace(/seconds?/, "sec");
 }

@@ -196,7 +196,6 @@ export function Panel({
   const menuItems: MenuEntry[] = [
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
     ...(agent ? [{ label: "Change this script…", onSelect: () => setEditWith({ title: "Change this script", text: "" }) }] : []),
-    { label: wide ? "Show all scripts" : "Wider view", onSelect: onWide },
     "separator",
     { heading: "Move to folder" },
     ...layout.items
@@ -404,6 +403,7 @@ export function Panel({
                     </button>
                   </div>
                 )}
+                {!live && Object.keys(run.params).length > 0 && <div className="run-with muted small">With {fmtParams(run.params, script.params)}</div>}
                 <RunOutput
                   key={run.id}
                   run={run}
@@ -443,35 +443,34 @@ export function Panel({
               <section key={day} className="hist-day">
                 <h3>{day}</h3>
                 <ul className="hist">
-                  {rows.map((h, i) => {
-                    const shownParams = fmtParams(h.params, script.params);
-                    // Values only when they differ from the run before, so repeats don't pile up.
-                    const older = rows[i + 1] ?? null;
-                    const changed = shownParams && (!older || fmtParams(older.params, script.params) !== shownParams);
-                    return (
-                      <li key={h.id}>
-                        <button
-                          className={`hist-row ${h.id === runId ? "on" : ""}`}
-                          onClick={() => {
-                            setShownRun(h.id);
-                            setTab("run");
-                          }}
-                        >
-                          <span className={`dot ${h.status}`} aria-hidden />
-                          <span className="hist-main">
-                            <span className={h.status === "failed" ? "bad-text" : h.status === "waiting" ? "warn-text" : ""}>{STATUS[h.status]}</span>
-                            <span className="muted">
-                              {" "}
-                              {new Date(h.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                              {h.endedAt ? ` · ${fmtDur(h.endedAt - h.startedAt)}` : ""}
-                              {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
-                            </span>
-                            {changed && <span className="hist-params">{shownParams}</span>}
+                  {collapseRepeats(rows).map(({ run: h, count, since }) => (
+                    <li key={h.id}>
+                      <button
+                        className={`hist-row ${h.id === runId ? "on" : ""}`}
+                        title={fmtParams(h.params, script.params) || undefined}
+                        onClick={() => {
+                          setShownRun(h.id);
+                          setTab("run");
+                        }}
+                      >
+                        <span className={`dot ${h.status}`} aria-hidden />
+                        <span className="hist-main">
+                          <span className={h.status === "failed" ? "bad-text" : h.status === "waiting" ? "warn-text" : ""}>
+                            {STATUS[h.status]}
+                            {count > 1 && ` ${count} times in a row`}
                           </span>
-                        </button>
-                      </li>
-                    );
-                  })}
+                          <span className="muted">
+                            {" "}
+                            {count > 1 && since ? `${clock(since)} – ` : ""}
+                            {clock(h.startedAt)}
+                            {/* Only durations people care about: a minute or more. */}
+                            {h.endedAt && h.endedAt - h.startedAt >= 60_000 ? ` · took ${fmtDur(h.endedAt - h.startedAt)}` : ""}
+                            {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               </section>
             ))}
@@ -528,6 +527,21 @@ function groupByDay<T extends { startedAt: number }>(list: T[]): [string, T[]][]
     const last = out[out.length - 1];
     if (last && last[0] === label) last[1].push(r);
     else out.push([label, [r]]);
+  }
+  return out;
+}
+
+const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+/** Back-to-back automatic runs that ended the same way become one row: "Failed 7 times in a row". */
+function collapseRepeats<T extends RunSummary>(rows: T[]): { run: T; count: number; since: number | null }[] {
+  const out: { run: T; count: number; since: number | null }[] = [];
+  for (const r of rows) {
+    const prev = out[out.length - 1];
+    if (prev && r.source === "schedule" && prev.run.source === "schedule" && r.status === prev.run.status && !isLive(r)) {
+      prev.count++;
+      prev.since = r.startedAt;
+    } else out.push({ run: r, count: 1, since: null });
   }
   return out;
 }

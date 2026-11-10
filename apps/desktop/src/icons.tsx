@@ -25,7 +25,7 @@ const ICONS: Record<string, LucideIcon> = {
  * colours are handed out so none repeats until all are used. Red and orange are left
  * out on purpose: red means "failed".
  */
-export const HUES = 8;
+export const HUES = 10;
 let hues = new Map<string, number>();
 let hueKey = "";
 export function setHueIds(ids: string[]) {

@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, FolderOpen, FolderPlus, Pencil, Star } from "lucide-react";
+import { ChevronLeft, Clock, Ellipsis, FolderOpen, FolderPlus, Pencil, Star } from "lucide-react";
 import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script, State } from "./api";
 import { Glyph, hueOf } from "./icons";
 import { Menu, type MenuEntry } from "./Menu";
+import { NewFolderDialog } from "./Dialogs";
 import { fmtValue, labelOf } from "./Form";
-import { fmtAgo, lastLabel, isLive } from "./fmt";
+import { fmtAgo, fmtEvery, fmtEveryShort, lastLabel, isLive } from "./fmt";
 import { folderOf, folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, type Target } from "./layoutOps";
 
 type Folder = Extract<LayoutItem, { type: "folder" }>;
@@ -170,36 +171,19 @@ export function Home({
     const b = badge(s);
     const inFav = where === "fav";
     const d = drop && drop.ref === id && (inFav ? drop.kind !== "into" : true) ? drop.kind : "";
+    const fav = layout.favourites.includes(id);
+    const sched = state.schedules.find((x) => x.script === id && x.enabled);
     return (
-      <button
+      // The packet is a container: one big button opens the script, and a star and a
+      // menu button sit on its colour front (shown on hover or focus, and on touch screens).
+      <div
         key={`${where}:${id}`}
-        className={`tile card packet ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
-        data-tile
-        data-id={id}
-        data-where={where}
+        className={`card packet ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
         draggable
-        aria-label={[s.name, b?.text, layout.favourites.includes(id) && !inFav ? "favourite" : ""].filter(Boolean).join(", ")}
-        aria-description={s.description}
-        aria-current={selected === id ? "true" : undefined}
-        onClick={(e) => {
-          onOpen(id, e.detail === 0);
-        }}
-
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY, id });
         }}
-        onKeyDown={(e) => {
-          if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
-            e.preventDefault();
-            const r = e.currentTarget.getBoundingClientRect();
-            setMenu({ x: r.left + 20, y: r.bottom, id });
-          } else if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-            e.preventDefault();
-            nudge(id, where, e.key === "ArrowLeft" ? -1 : 1);
-          } else tileKeys(e);
-        }}
-
         onDragStart={(e) => {
           drag.current = { id, folder: false, fav: inFav };
           e.dataTransfer.effectAllowed = "move";
@@ -222,16 +206,63 @@ export function Home({
           onTileDrop(id, false, inFav, zone(e, inFav));
         }}
       >
-        <span className={`packet-front hue-${hueOf(s.id)}`}>
-          <Glyph script={s} size={30} />
-          {b && <Sticker badge={b} />}
+        <button
+          className="card-main"
+          data-tile
+          data-id={id}
+          data-where={where}
+          aria-label={[s.name, b?.text, fav && !inFav ? "favourite" : "", sched ? `runs every ${fmtEvery(sched.every)}` : ""].filter(Boolean).join(", ")}
+          aria-description={s.description}
+          aria-current={selected === id ? "true" : undefined}
+          onClick={(e) => onOpen(id, e.detail === 0)}
+          onKeyDown={(e) => {
+            if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+              e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({ x: r.left + 20, y: r.bottom, id });
+            } else if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+              e.preventDefault();
+              nudge(id, where, e.key === "ArrowLeft" ? -1 : 1);
+            } else tileKeys(e);
+          }}
+        >
+          <span className={`packet-front hue-${hueOf(s.id)}`}>
+            <Glyph script={s} size={24} />
+            {b && <Sticker badge={b} />}
+          </span>
+          <span className="packet-label">
+            <span className="card-name">
+              {s.name}
+              {fav && !inFav && <Star size={12} fill="currentColor" className="fav name-star" aria-hidden />}
+            </span>
+            <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
+            <CardFoot script={s} last={last(id)} every={sched?.every} />
+          </span>
+        </button>
+        <span className="card-actions">
+          <button
+            className={`ib ${fav ? "on-fav" : ""}`}
+            aria-pressed={fav}
+            title={fav ? "Remove from favourites" : "Add to favourites"}
+            aria-label={`${fav ? "Remove" : "Add"} ${s.name} ${fav ? "from" : "to"} favourites`}
+            onClick={() => onLayout(toggleFavourite(layout, id))}
+          >
+            <Star size={15} fill={fav ? "currentColor" : "none"} aria-hidden />
+          </button>
+          <button
+            className="ib"
+            title="More"
+            aria-label={`More for ${s.name}`}
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({ x: r.right - 200, y: r.bottom + 4, id });
+            }}
+          >
+            <Ellipsis size={16} aria-hidden />
+          </button>
         </span>
-        <span className="packet-label">
-          <span className="card-name">{s.name}</span>
-          <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
-          <CardFoot script={s} last={last(id)} />
-        </span>
-      </button>
+      </div>
     );
   };
 
@@ -284,11 +315,13 @@ export function Home({
       >
         <span className="packet-front folder-front">
           <FolderOpen size={26} strokeWidth={1.8} aria-hidden />
-          <span className="swatches" aria-hidden>
-            {kids.slice(0, 5).map((k) => (
-              <span key={k.id} className={`swatch hue-${hueOf(k.id)}`} />
-            ))}
-          </span>
+          {!worst && (
+            <span className="swatches" aria-hidden>
+              {kids.slice(0, 5).map((k) => (
+                <span key={k.id} className={`swatch hue-${hueOf(k.id)}`} />
+              ))}
+            </span>
+          )}
           {worst && <Sticker badge={worst} />}
         </span>
         <span className="packet-label">
@@ -381,9 +414,11 @@ export function Home({
 
   // A dashed spot at the end of the grid: drop a script on it to start a folder.
   const [newDrop, setNewDrop] = useState(false);
+  const [folderDialog, setFolderDialog] = useState(false);
   const newFolderSpot = (
-    <div
+    <button
       className={`new-folder ${newDrop ? "over" : ""}`}
+      onClick={() => setFolderDialog(true)}
       onDragOver={(e) => {
         if (!drag.current || drag.current.folder) return;
         e.preventDefault();
@@ -408,9 +443,9 @@ export function Home({
       <FolderPlus size={20} aria-hidden />
       <span>
         <b>New folder</b>
-        <span className="muted small">Drag a script here</span>
+        <span className="muted small">Click, or drag a script here</span>
       </span>
-    </div>
+    </button>
   );
 
   // ---- views ----
@@ -512,6 +547,19 @@ export function Home({
         </>
       )}
 
+      {folderDialog && (
+        <NewFolderDialog
+          scripts={layout.items.filter((i) => i.type === "script").map((i) => byId.get(i.id)!).filter(Boolean)}
+          onClose={() => setFolderDialog(false)}
+          onCreate={(name, ids) => {
+            let { layout: next, created } = folderWith(layout, ids[0]!, name);
+            for (const id of ids.slice(1)) next = moveToFolder(next, id, created);
+            onLayout(next);
+            setFolderDialog(false);
+            toggleFolder(created);
+          }}
+        />
+      )}
       {menu && (
         <Menu
           x={menu.x}
@@ -530,7 +578,7 @@ function InputChip({ name, spec }: { name: string; spec: ParamSpec }) {
   const d = spec.default;
   const shown = d === undefined || d === "" || d === null ? "" : spec.kind === "boolean" ? (d ? "on" : "off") : fmtValue(spec, d);
   return (
-    <span className="chip" title={[spec.description, spec.optional ? "Optional" : "Required"].filter(Boolean).join(". ")}>
+    <span className={`chip ${shown ? "" : "empty"}`} title={[spec.description, spec.optional ? "Optional" : shown ? "" : "You fill this in"].filter(Boolean).join(". ")}>
       {labelOf(name, spec)}
       {shown && <span className="chip-val"> {shown}</span>}
       {spec.optional && <span className="chip-val">?</span>}
@@ -558,7 +606,7 @@ function asksFor(s: Script) {
 }
 
 /** The bottom of a packet: what you fill in (up to three, then "+2") and how it last went. */
-function CardFoot({ script, last }: { script: Script; last: RunSummary | null }) {
+function CardFoot({ script, last, every }: { script: Script; last: RunSummary | null; every?: string }) {
   const params = Object.entries(script.params);
   return (
     <span className="card-foot">
@@ -566,9 +614,19 @@ function CardFoot({ script, last }: { script: Script; last: RunSummary | null })
         <InputChip key={k} name={k} spec={p} />
       ))}
       {params.length > 3 && <span className="chip more">+{params.length - 3}</span>}
-      {last && !isLive(last) && (
-        <span className={`card-last ${last.status === "failed" ? "bad-text" : ""}`} title={new Date(last.startedAt).toLocaleString()}>
-          {lastLabel(last)}
+      {(every || (last && !isLive(last))) && (
+        <span className="card-last">
+          {every && (
+            <span className="every-tag">
+              <Clock size={12} aria-hidden /> Every {fmtEveryShort(every)}
+            </span>
+          )}
+          {every && last && !isLive(last) && " · "}
+          {last && !isLive(last) && (
+            <span className={last.status === "failed" ? "bad-text" : ""} title={new Date(last.startedAt).toLocaleString()}>
+              {lastLabel(last)}
+            </span>
+          )}
         </span>
       )}
     </span>
@@ -579,12 +637,12 @@ function CardFoot({ script, last }: { script: Script; last: RunSummary | null })
 export function attentionOf(state: State, runs: Record<string, RunDetail>) {
   const name = (id: string) => state.scripts.find((s) => s.id === id)?.name ?? id;
   const live = Object.values(runs).filter(isLive);
-  const waiting = live.filter((r) => r.status === "waiting").map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: r.pendingAsk?.request.message ?? "Waiting for you", when: "", kind: "waiting" as const }));
+  const waiting = live.filter((r) => r.status === "waiting").map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: r.pendingAsk?.request.message ?? "Waiting for you", when: "", every: undefined as string | undefined, kind: "waiting" as const }));
   const failing = state.schedules
     .filter((s) => s.enabled && state.scripts.some((x) => x.id === s.script))
     .map((s) => ({ s, last: s.last ? (runs[s.last.id] ?? s.last) : null }))
     .filter((x) => x.last?.status === "failed")
-    .map((x) => ({ id: x.s.script, run: x.last!.id, name: name(x.s.script), text: "", when: fmtAgo(x.last!.endedAt ?? x.last!.startedAt), kind: "failed" as const }));
+    .map((x) => ({ id: x.s.script, run: x.last!.id, name: name(x.s.script), text: "", when: fmtAgo(x.last!.endedAt ?? x.last!.startedAt), every: x.s.every, kind: "failed" as const }));
   const running = live.filter((r) => r.status === "running").map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: "Running", kind: "running" as const }));
   return { needs: [...waiting, ...failing], running };
 }

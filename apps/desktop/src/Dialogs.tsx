@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { isTauri, type Api, type State } from "./api";
 import { PathField } from "./PathField";
 
@@ -66,7 +67,12 @@ function Dialog({ title, onClose, children }: { title: string; onClose: () => vo
   return (
     <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={box} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trap}>
-        <h2 id={titleId}>{title}</h2>
+        <div className="dialog-head">
+          <h2 id={titleId}>{title}</h2>
+          <button type="button" className="ib" aria-label="Close" title="Close (Esc)" onClick={() => close.current()}>
+            <X size={17} aria-hidden />
+          </button>
+        </div>
         {children}
       </div>
     </div>
@@ -144,19 +150,19 @@ export function NewScriptDialog({
       >
         <div className="field">
           <label htmlFor="ns-name">Name</label>
-          <input id="ns-name" placeholder="Back up my notes" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <input id="ns-name" placeholder="e.g. Back up my notes" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </div>
         <div className="field">
           <label htmlFor="ns-what">What should it do?</label>
           <textarea
             id="ns-what"
             rows={4}
-            placeholder="Copy my Notes folder to the backup drive and keep the last 10 copies."
+            placeholder="e.g. Copy my Notes folder to the backup drive and keep the last 10 copies."
             value={what}
             onChange={(e) => setWhat(e.target.value)}
           />
           {agent ? (
-            <div className="hint">{agent.name} writes it for you. Its window opens while it works.</div>
+            <div className="hint">{agent.name} writes it for you; a helper window opens while it works.</div>
           ) : (
             state.harnesses.length === 0 && (
               <div className="hint">This makes an empty script. Install Claude Code, Codex, Gemini CLI or OpenCode to have one written for you.</div>
@@ -371,6 +377,57 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
           )}
         </div>
       </div>
+    </Dialog>
+  );
+}
+
+/** Make a folder: name it and tick the scripts that go in it. */
+export function NewFolderDialog({
+  scripts,
+  onClose,
+  onCreate,
+}: {
+  scripts: { id: string; name: string }[];
+  onClose: () => void;
+  onCreate: (name: string, ids: string[]) => void;
+}) {
+  const [name, setName] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  return (
+    <Dialog title="New folder" onClose={onClose}>
+      <form
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (picked.length) onCreate(name.trim() || "New folder", picked);
+        }}
+      >
+        <div className="field">
+          <label htmlFor="nf-name">Name</label>
+          <input id="nf-name" placeholder="e.g. Photos" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        </div>
+        <fieldset className="pick-list">
+          <legend>Put these scripts in it</legend>
+          {scripts.map((s) => (
+            <label key={s.id} className="check">
+              <input
+                type="checkbox"
+                checked={picked.includes(s.id)}
+                onChange={(e) => setPicked((p) => (e.target.checked ? [...p, s.id] : p.filter((x) => x !== s.id)))}
+              />
+              {s.name}
+            </label>
+          ))}
+        </fieldset>
+        <div className="row end">
+          <button type="button" className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="primary" disabled={!picked.length}>
+            Make folder
+          </button>
+        </div>
+      </form>
     </Dialog>
   );
 }
