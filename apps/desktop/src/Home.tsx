@@ -2,9 +2,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { ChevronLeft, Clock, Ellipsis, FolderOpen, FolderPlus, Pencil, Star } from "lucide-react";
 import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script, State } from "./api";
 import { Glyph, hueOf } from "./icons";
+import { preferredHarness } from "./Dialogs";
 import { Menu, type MenuEntry } from "./Menu";
 import { NewFolderDialog } from "./Dialogs";
-import { fmtValue, labelOf } from "./Form";
+import { defaults, fmtValue, labelOf, startValues } from "./Form";
 import { fmtAgo, fmtEvery, fmtEveryShort, lastLabel, isLive } from "./fmt";
 import { folderOf, folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, type Target } from "./layoutOps";
 
@@ -130,10 +131,12 @@ export function Home({
     const fav = layout.favourites.includes(id);
     const home = folderOf(layout, id);
     const folders = layout.items.filter((i): i is Folder => i.type === "folder" && i.id !== home?.id);
+    const agent = preferredHarness(state.harnesses);
     return [
       { label: "Open", onSelect: () => onOpen(id, true) },
-      { label: "Run", hint: Object.keys(s.params).length ? "last values" : "", onSelect: () => onRun(id), disabled: !!s.error },
+      { label: state.lastRuns[id] ? "Run again" : "Run", hint: Object.keys(s.params).length ? "same values" : "", onSelect: () => onRun(id), disabled: !!s.error },
       { label: fav ? "Remove from favourites" : "Add to favourites", onSelect: () => onLayout(toggleFavourite(layout, id)) },
+      ...(agent ? [{ label: `Change with ${agent.name}…`, onSelect: () => onEditWith(id) }] : []),
       "separator",
       { heading: "Move to folder" },
       ...folders.map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, id, f.id)) })),
@@ -148,7 +151,7 @@ export function Home({
       },
       ...(home ? [{ label: `Out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, id, null)) }] : []),
       "separator",
-      ...(state.harnesses.length ? [{ label: "Edit with agent…", onSelect: () => onEditWith(id) }] : []),
+      { heading: "For developers" },
       { label: "Open file", onSelect: () => api.open(id).catch(() => {}) },
     ];
   };
@@ -174,11 +177,11 @@ export function Home({
     const fav = layout.favourites.includes(id);
     const sched = state.schedules.find((x) => x.script === id && x.enabled);
     return (
-      // The packet is a container: one big button opens the script, and a star and a
-      // menu button sit on its colour front (shown on hover or focus, and on touch screens).
+      // The card is a container: one big button opens the script, and a star and a menu
+      // button sit in its bottom corner (shown on hover or focus, and on touch screens).
       <div
         key={`${where}:${id}`}
-        className={`card packet ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
+        className={`card ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
         draggable
         onContextMenu={(e) => {
           e.preventDefault();
@@ -226,18 +229,24 @@ export function Home({
             } else tileKeys(e);
           }}
         >
-          <span className={`packet-front hue-${hueOf(s.id)}`}>
-            <Glyph script={s} size={24} />
+          <span className="card-top">
+            <span className={`tile-icon hue-${hueOf(s.id)}`}>
+              <Glyph script={s} size={19} />
+            </span>
             {b && <Sticker badge={b} />}
           </span>
-          <span className="packet-label">
-            <span className="card-name">
-              {s.name}
-              {fav && !inFav && <Star size={12} fill="currentColor" className="fav name-star" aria-hidden />}
-            </span>
-            <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
-            <CardFoot script={s} last={last(id)} every={sched?.every} />
+          <span className="card-name">
+            {s.name}
+            {fav && !inFav && <Star size={12} fill="currentColor" className="fav name-star" aria-hidden />}
           </span>
+          <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
+          <CardFoot
+            script={s}
+            // The values it will really run with: the schedule's, or the form's (last run or last typed).
+            values={sched ? { ...defaults(s.params), ...sched.params } : startValues(s, state.lastRuns[id]).values}
+            last={last(id)}
+            every={sched?.every}
+          />
         </button>
         <span className="card-actions">
           <button
@@ -274,7 +283,7 @@ export function Home({
     return (
       <button
         key={f.id}
-        className={`tile card packet folder ${openFolder === f.id ? "open" : ""} ${d ? `drop-${d}` : ""}`}
+        className={`card folder ${openFolder === f.id ? "open" : ""} ${d ? `drop-${d}` : ""}`}
         data-tile
         data-id={f.id}
         draggable
@@ -313,22 +322,28 @@ export function Home({
           onTileDrop(f.id, true, false, zone(e, false));
         }}
       >
-        <span className="packet-front folder-front">
-          <FolderOpen size={26} strokeWidth={1.8} aria-hidden />
-          {!worst && (
-            <span className="swatches" aria-hidden>
-              {kids.slice(0, 5).map((k) => (
-                <span key={k.id} className={`swatch hue-${hueOf(k.id)}`} />
-              ))}
+        <span className="card-main">
+          <span className="card-top">
+            <span className="tile-icon folder-icon">
+              <FolderOpen size={19} aria-hidden />
             </span>
-          )}
-          {worst && <Sticker badge={worst} />}
-        </span>
-        <span className="packet-label">
+            {worst ? (
+              <Sticker badge={worst} />
+            ) : (
+              <span className="kids" aria-hidden>
+                {kids.slice(0, 4).map((k) => (
+                  <span key={k.id} className={`kid hue-${hueOf(k.id)}`}>
+                    <Glyph script={k} size={12} />
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
           <span className="card-name">{f.name}</span>
           <span className="card-sub">
             Folder · {kids.length} script{kids.length === 1 ? "" : "s"}
           </span>
+          <span className="card-last">{kids.map((k) => k.name).join(", ")}</span>
         </span>
       </button>
     );
@@ -339,7 +354,7 @@ export function Home({
     requestAnimationFrame(() =>
       document.querySelector<HTMLElement>(`.home [data-tile][data-id="${CSS.escape(id)}"]${where ? `[data-where="${CSS.escape(where)}"]` : ""}`)?.focus(),
     );
-  // Opening a folder moves focus to its back link; closing returns it to the folder's packet.
+  // Opening a folder moves focus to its back link; closing returns it to the folder's card.
   const toggleFolder = (id: string | null, focusId?: string) => {
     setOpenFolder(id);
     if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(".home .back-link")?.focus());
@@ -573,20 +588,23 @@ export function Home({
   );
 }
 
-/** One input as a chip: its label, and its default when it has one ("Times 3", "Mood calm"). */
-function InputChip({ name, spec }: { name: string; spec: ParamSpec }) {
-  const d = spec.default;
-  const shown = d === undefined || d === "" || d === null ? "" : spec.kind === "boolean" ? (d ? "on" : "off") : fmtValue(spec, d);
+/** One input as a chip: its label and the value it will run with ("Times 2", "Folder ext2"). */
+function InputChip({ name, spec, value }: { name: string; spec: ParamSpec; value: unknown }) {
+  const empty = value === undefined || value === "" || value === null;
+  // A web address reads as the file or site it points at ("missing.zip", "example.com").
+  const url = typeof value === "string" && /^https?:\/\//.test(value) ? (() => { try { const u = new URL(value); return u.pathname.split("/").filter(Boolean).at(-1) ?? u.host; } catch { return null; } })() : null;
+  const full = empty ? "" : spec.kind === "boolean" ? (value ? "on" : "off") : (url ?? fmtValue(spec, value));
+  const shown = full.length > 14 ? `${full.slice(0, 13)}…` : full;
+  const needed = empty && !spec.optional;
   return (
-    <span className={`chip ${shown ? "" : "empty"}`} title={[spec.description, spec.optional ? "Optional" : shown ? "" : "You fill this in"].filter(Boolean).join(". ")}>
-      {labelOf(name, spec)}
-      {shown && <span className="chip-val"> {shown}</span>}
-      {spec.optional && <span className="chip-val">?</span>}
+    <span className={`chip ${needed ? "empty" : ""}`} title={[url ? String(value) : full, spec.description, needed ? "You fill this in" : ""].filter(Boolean).join(". ")}>
+      <span className="chip-key">{labelOf(name, spec)}</span>
+      {shown && <span className="chip-val">{shown}</span>}
     </span>
   );
 }
 
-/** The round label on a packet's front that says, in a word or two, what needs attention. */
+/** The pill in a card's corner that says, in a word or two, what needs attention. */
 function Sticker({ badge }: { badge: Exclude<Badge, null> }) {
   const word = { failed: "Failed", error: "Broken", waiting: "Needs you", running: "Running" }[badge.kind];
   const dot = badge.kind === "error" ? "failed" : badge.kind;
@@ -605,31 +623,31 @@ function asksFor(s: Script) {
   return `Asks for ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}`;
 }
 
-/** The bottom of a packet: what you fill in (up to three, then "+2") and how it last went. */
-function CardFoot({ script, last, every }: { script: Script; last: RunSummary | null; every?: string }) {
+/** The bottom of a card: its inputs (up to three, then "+2") and how it last went. */
+function CardFoot({ script, values, last, every }: { script: Script; values: Record<string, unknown>; last: RunSummary | null; every?: string }) {
   const params = Object.entries(script.params);
+  const done = last && !isLive(last) ? last : null;
   return (
-    <span className="card-foot">
-      {params.slice(0, 3).map(([k, p]) => (
-        <InputChip key={k} name={k} spec={p} />
-      ))}
-      {params.length > 3 && <span className="chip more">+{params.length - 3}</span>}
-      {(every || (last && !isLive(last))) && (
-        <span className="card-last">
-          {every && (
-            <span className="every-tag">
-              <Clock size={12} aria-hidden /> Every {fmtEveryShort(every)}
-            </span>
-          )}
-          {every && last && !isLive(last) && " · "}
-          {last && !isLive(last) && (
-            <span className={last.status === "failed" ? "bad-text" : ""} title={new Date(last.startedAt).toLocaleString()}>
-              {lastLabel(last)}
-            </span>
-          )}
+    <>
+      {params.length > 0 && (
+        <span className="card-foot">
+          {params.slice(0, 3).map(([k, p]) => (
+            <InputChip key={k} name={k} spec={p} value={values[k]} />
+          ))}
+          {params.length > 3 && <span className="chip more">+{params.length - 3}</span>}
         </span>
       )}
-    </span>
+      {/* One quiet line, always there: status colour lives on the sticker alone. */}
+      <span className="card-last">
+        {every && (
+          <span className="every-tag">
+            <Clock size={12} aria-hidden /> Every {fmtEveryShort(every)}
+            {done && " · "}
+          </span>
+        )}
+        {done ? <span title={new Date(done.startedAt).toLocaleString()}>{lastLabel(done)}</span> : !every && !last && "Not run yet"}
+      </span>
+    </>
   );
 }
 
@@ -637,7 +655,9 @@ function CardFoot({ script, last, every }: { script: Script; last: RunSummary | 
 export function attentionOf(state: State, runs: Record<string, RunDetail>) {
   const name = (id: string) => state.scripts.find((s) => s.id === id)?.name ?? id;
   const live = Object.values(runs).filter(isLive);
-  const waiting = live.filter((r) => r.status === "waiting").map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: r.pendingAsk?.request.message ?? "Waiting for you", when: "", every: undefined as string | undefined, kind: "waiting" as const }));
+  // One entry per script: its newest waiting run.
+  const waitingRuns = live.filter((r) => r.status === "waiting").sort((a, b) => b.startedAt - a.startedAt).filter((r, i, all) => all.findIndex((x) => x.script === r.script) === i);
+  const waiting = waitingRuns.map((r) => ({ id: r.script, run: r.id, name: name(r.script), text: r.pendingAsk?.request.message ?? "Waiting for you", when: "", every: undefined as string | undefined, kind: "waiting" as const }));
   const failing = state.schedules
     .filter((s) => s.enabled && state.scripts.some((x) => x.id === s.script))
     .map((s) => ({ s, last: s.last ? (runs[s.last.id] ?? s.last) : null }))

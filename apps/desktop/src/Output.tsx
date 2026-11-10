@@ -7,11 +7,14 @@ export function RunOutput({
   run,
   onAnswer,
   footer,
+  tech = [],
 }: {
   run: RunDetail;
   onAnswer: (id: number, value: unknown) => void;
   /** Shown after a finished run, e.g. what to do about a failure. */
   footer?: ReactNode;
+  /** Extra lines for Technical details, e.g. the values a failed run had. */
+  tech?: string[];
 }) {
   const end = useRef<HTMLDivElement>(null);
   const live = run.status === "running" || run.status === "waiting";
@@ -41,13 +44,33 @@ export function RunOutput({
     return m;
   }, [run.events]);
 
+  // Everything only a developer needs goes in one fold at the end: how long a failed run
+  // took, its values, the raw error when it was reworded, and the stack trace.
+  const failed = run.status === "failed";
+  const endIdx = failed ? run.events.map((e) => e.t).lastIndexOf("sys") : -1;
+  const details = useMemo(() => {
+    const out: string[] = [];
+    if (endIdx >= 0) out.push((run.events[endIdx] as { text: string }).text);
+    out.push(...tech);
+    for (const e of run.events) {
+      if (e.t !== "err") continue;
+      const lines = e.text.replace(/\n$/, "").split("\n");
+      for (const l of lines) if (/^\s+at\s/.test(l) || (l.trim() && friendlyError(l))) out.push(l);
+    }
+    return out;
+  }, [run.events, endIdx, tech.join("\n")]);
+
   return (
-    <div className="output">
+    <div className={`output ${live ? "live" : ""}`}>
       {run.events.length === 0 && run.status === "running" && <div className="muted">Starting…</div>}
-      {run.events.map((e, i) => (
-        <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />
-      ))}
+      {run.events.map((e, i) => (i === endIdx ? null : <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} />))}
       {pending && <AskCard key={pending.id} req={pending.request} onAnswer={(v) => onAnswer(pending.id, v)} />}
+      {!live && details.length > 0 && (
+        <details className="tech">
+          <summary>Technical details</summary>
+          <pre className="log">{details.join("\n")}</pre>
+        </details>
+      )}
       {!live && footer}
       <div ref={end} />
     </div>
@@ -59,21 +82,14 @@ function Event({ e, answered }: { e: RunEvent; answered: unknown }) {
     case "out":
       return <pre className="log">{e.text}</pre>;
     case "err": {
-      // The message reads as a sentence; the stack trace is there for whoever wants it.
-      const lines = e.text.replace(/\n$/, "").split("\n");
-      const stack = lines.filter((l) => /^\s+at\s/.test(l));
-      const message = lines.filter((l) => !/^\s+at\s/.test(l)).map(plainError).join("\n");
-      return (
-        <>
-          {message.trim() && <pre className="log err">{message}</pre>}
-          {stack.length > 0 && (
-            <details className="tech">
-              <summary>Technical details</summary>
-              <pre className="log">{stack.join("\n")}</pre>
-            </details>
-          )}
-        </>
-      );
+      // The message reads as a sentence; the stack trace is in Technical details.
+      const message = e.text
+        .replace(/\n$/, "")
+        .split("\n")
+        .filter((l) => !/^\s+at\s/.test(l))
+        .map((l) => friendlyError(l) ?? plainError(l))
+        .join("\n");
+      return message.trim() ? <pre className="log err">{message}</pre> : null;
     }
     case "sys":
       // "(exit 1)" says nothing to most people; failed is already said.
@@ -89,6 +105,17 @@ function Event({ e, answered }: { e: RunEvent; answered: unknown }) {
     default:
       return null;
   }
+}
+
+/** Common failures, said the way a person would say them. */
+const FRIENDLY: [RegExp, string][] = [
+  [/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|Unable to connect|fetch failed|getaddrinfo/i, "Couldn't connect. Check the web address and your internet connection."],
+  [/ENOENT|no such file or directory/i, "A file or folder it needs isn't there."],
+  [/EACCES|EPERM|permission denied/i, "It isn't allowed to open a file or folder it needs."],
+  [/ENOSPC|no space left/i, "The disk is full."],
+];
+export function friendlyError(line: string) {
+  return FRIENDLY.find(([re]) => re.test(line))?.[1] ?? null;
 }
 
 /** "TypeError: ECONNREFUSED: Unable to connect" -> "Unable to connect". */

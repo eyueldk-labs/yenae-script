@@ -1,4 +1,4 @@
-// Lists the biggest files in a folder you pick. A plain script: no defineScript, no form.
+// Lists the biggest files in a folder you pick.
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ask, show } from "yenae-script";

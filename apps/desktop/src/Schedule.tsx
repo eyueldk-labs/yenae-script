@@ -95,15 +95,15 @@ export function SchedulePanel({
     <div className="sched" role="tabpanel" id="panel-schedule" aria-labelledby="tab-schedule">
       <div className="sched-head">
         <div className="grow">
-          <div className="sched-title">{on ? `On · every ${fmtEvery(schedule!.every)}` : "Run this script automatically"}</div>
+          <div className="sched-title">{on ? `On, every ${fmtEvery(schedule!.every)}` : "Run this script automatically"}</div>
           <div className="muted small">
             {on
               ? last && isLive(last)
-                ? "Running now."
+                ? "Running now"
                 : schedule!.nextRun
-                  ? `Next run ${fmtWhen(schedule!.nextRun)}.`
+                  ? `Next run ${fmtWhen(schedule!.nextRun)}`
                   : ""
-              : "It runs while Yenae Script is open or in the tray."}
+              : "While Yenae Script is open or in the tray"}
           </div>
         </div>
         {on ? (

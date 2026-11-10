@@ -5,7 +5,7 @@ import { defaults, missing } from "./Form";
 import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
 import { Home, attentionOf } from "./Home";
 import { Panel, type Opening } from "./Panel";
-import { fmtEvery, isLive } from "./fmt";
+import { isLive } from "./fmt";
 import { toggleFavourite } from "./layoutOps";
 import { store } from "./store";
 import { setHueIds } from "./icons";
@@ -115,7 +115,6 @@ export function App() {
   const script = state?.scripts.find((s) => s.id === selected) ?? null;
   if (state) setHueIds(state.scripts.map((s) => s.id));
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [allAlerts, setAllAlerts] = useState(false);
   const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs]);
 
   // The tray says how many things need you while the window is hidden.
@@ -267,41 +266,31 @@ export function App() {
         )}
         <main className="catalog-body">
           {!query && alerts.length > 0 && (
-            // What needs the user, in sentences, each with the one thing to do about it. An alert
-            // for the script already open is hidden (the panel says it), and any can be dismissed.
-            <ul className="alerts" aria-label="Needs you">
-              {(alerts.length > 2 && !allAlerts ? alerts.slice(0, 1) : alerts).map((n) => (
-                <li key={n.run} className={`alert ${n.kind}`}>
-                  <span className={`dot ${n.kind}`} aria-hidden />
-                  <span className="grow">
-                    <b>{n.name}</b> {n.kind === "waiting" ? "needs your answer" : `failed ${n.when}`}
-                    {n.every && <span className="muted"> · runs every {fmtEvery(n.every)}</span>}
-                  </span>
-                  {n.every && (
-                    <button
-                      onClick={() => {
-                        const sc = state.schedules.find((x) => x.script === n.id);
-                        if (sc) api.schedule(n.id, sc.every, sc.params, false).catch((e) => setError(e.message));
-                      }}
-                    >
-                      Pause
+            // Everything that needs the user, in one quiet sentence. Each name opens that script
+            // at the run in question. An alert for the script already open is hidden (the panel says it).
+            <div className="alerts" role="region" aria-label="Needs you">
+              <span className={`dot ${alerts.some((n) => n.kind === "failed") ? "failed" : "waiting"}`} aria-hidden />
+              <span className="grow alerts-text">
+                {alerts.length > 1 && <b>{alerts.length} things need you: </b>}
+                {alerts.map((n, i) => (
+                  <span key={n.run} className="alert-item">
+                    {i > 0 && <span className="muted"> · </span>}
+                    <button className={`link alert-link ${n.kind}`} onClick={() => open(n.id, { run: n.run })}>
+                      {n.name}
                     </button>
-                  )}
-                  <button className={n.kind === "waiting" ? "primary" : ""} onClick={() => open(n.id, { run: n.run })}>
-                    {n.kind === "waiting" ? "Answer" : "See why"}
-                  </button>
-                  <button className="ib" aria-label="Dismiss" title="Dismiss" onClick={() => setDismissed((d) => new Set(d).add(n.run))}>
-                    <X size={16} aria-hidden />
-                  </button>
-                </li>
-              ))}
-              {alerts.length > 2 && !allAlerts && (
-                <li className="alert more-alerts">
-                  <span className="grow muted">and {alerts.length - 1} more things need you</span>
-                  <button onClick={() => setAllAlerts(true)}>Show all</button>
-                </li>
+                    {n.kind === "waiting" ? " is waiting for your answer" : ` failed ${n.when}`}
+                  </span>
+                ))}
+              </span>
+              {alerts.length === 1 && (
+                <button className={alerts[0]!.kind === "waiting" ? "primary" : ""} onClick={() => open(alerts[0]!.id, { run: alerts[0]!.run })}>
+                  {alerts[0]!.kind === "waiting" ? "Answer" : "See why"}
+                </button>
               )}
-            </ul>
+              <button className="ib" aria-label="Dismiss" title="Dismiss" onClick={() => setDismissed((d) => new Set([...d, ...alerts.map((n) => n.run)]))}>
+                <X size={16} aria-hidden />
+              </button>
+            </div>
           )}
           <Home
             api={api}

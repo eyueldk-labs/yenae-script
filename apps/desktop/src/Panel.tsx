@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Ellipsis, Star, X, ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, Ellipsis, Star, X } from "lucide-react";
 import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
 import { folderOf, folderWith, moveToFolder } from "./layoutOps";
-import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing } from "./Form";
-import { RunOutput, plainError } from "./Output";
+import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, startValues } from "./Form";
+import { RunOutput, friendlyError, plainError } from "./Output";
 import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
 import { Menu, type MenuEntry } from "./Menu";
@@ -52,13 +52,7 @@ export function Panel({
   const schedule = state.schedules.find((s) => s.script === script.id) ?? null;
   // The form starts from whichever is newer: what you last typed, or the values of the last run
   // (which may have been a scheduled or agent run). Either way you rarely retype.
-  const [initial] = useState(() => {
-    const typed = store.get<Record<string, unknown> | null>(`values:${script.id}`, null);
-    const typedAt = store.get<number>(`valuesAt:${script.id}`, 0);
-    const lastRun = state.lastRuns[script.id];
-    const fromRun = !!lastRun && Object.keys(lastRun.params).length > 0 && lastRun.startedAt > typedAt;
-    return { values: { ...defaults(script.params), ...(fromRun ? lastRun!.params : (typed ?? {})) }, fromRun };
-  });
+  const [initial] = useState(() => startValues(script, state.lastRuns[script.id]));
   const [values, setValuesRaw] = useState<Record<string, unknown>>(initial.values);
   const [prefilled, setPrefilled] = useState(initial.fromRun && Object.keys(script.params).length > 0);
   const setValues = (v: Record<string, unknown>) => {
@@ -194,23 +188,77 @@ export function Panel({
 
   const home = folderOf(layout, script.id);
   const menuItems: MenuEntry[] = [
-    { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
-    ...(agent ? [{ label: "Change this script…", onSelect: () => setEditWith({ title: "Change this script", text: "" }) }] : []),
-    "separator",
+    ...(agent ? [{ label: `Change with ${agent.name}…`, onSelect: () => setEditWith({ title: "Change this script", text: "" }) }] : []),
     { heading: "Move to folder" },
     ...layout.items
       .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder" && i.id !== home?.id)
       .map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, script.id, f.id)) })),
     ...(home ? [{ label: `Out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, script.id, null)) }] : []),
     { label: "New folder", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
+    "separator",
+    { heading: "For developers" },
+    { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
   ];
 
   // A failed last run that isn't on screen yet gets a one-line summary above the form.
   const lastFailed = last && last.status === "failed" && last.id !== runId ? last : null;
   const shownIsOld = !!run && !isLive(run) && params.length > 0 && JSON.stringify(run.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
 
+  // Opened from "See why": the failure comes first, above the form.
+  const failFirst = !!run && !live && run.status === "failed" && run.id === opening.run;
+  const output = run && (
+              <section className={`run-output ${failFirst ? "first" : ""}`} aria-label="Output">
+                {!live && (
+                  <div className="run-head small">
+                    <span className={`dot ${run.status}`} aria-hidden />
+                    <span className={run.status === "failed" ? "bad-text" : ""}>{STATUS[run.status]}</span>
+                    <span className="muted">
+                      {fmtAgo(run.endedAt ?? run.startedAt)}
+                      {SOURCE[run.source] ? ` · ${SOURCE[run.source]}` : ""}
+                    </span>
+                    <span className="grow" />
+                    <button className="link" onClick={() => setShownRun(null)}>
+                      Hide
+                    </button>
+                  </div>
+                )}
+                {!live && run.status !== "failed" && Object.keys(run.params).length > 0 && <div className="run-with muted small">With {fmtParams(run.params, script.params)}</div>}
+                <RunOutput
+                  key={run.id}
+                  run={run}
+                  onAnswer={(id, v) => api.answer(run.id, id, v).catch((e) => setMsg({ text: e.message, tone: "bad" }))}
+                  tech={run.status === "failed" && Object.keys(run.params).length ? [`With ${fmtParams(run.params, script.params)}`] : []}
+                  footer={
+                    (run.status === "failed" || shownIsOld) && (
+                      <div className="row wrap after-run">
+                        {shownIsOld && (
+                          <button
+                            onClick={() => {
+                              const before = values;
+                              setValues({ ...values, ...run.params });
+                              setMsg({ text: "Filled the form with this run's values.", tone: "note", undo: () => setValues(before) });
+                            }}
+                          >
+                            Use these values
+                          </button>
+                        )}
+                        {run.status === "failed" && agent && (
+                          <>
+                            <button className="primary" onClick={() => fixFailure(run)}>
+                              Ask {agent.name} to fix it
+                            </button>
+                            <span className="muted small">Opens a helper window.</span>
+                          </>
+                        )}
+                      </div>
+                    )
+                  }
+                />
+              </section>
+  );
+
   return (
-    // The panel wears the script's packet colour: its header is the packet front.
+    // The panel carries the script's colour on its icon tile.
     <aside ref={root} className={`panel hue-${hueOf(script.id)} ${wide ? "wide" : ""}`} aria-label={script.name}>
       <header className="panel-head">
         <button className="ib back-btn" onClick={onClose} aria-label="Back to scripts">
@@ -219,12 +267,9 @@ export function Panel({
         </button>
         <div className="panel-title">
           <span className="panel-glyph">
-            <Glyph script={script} size={26} />
+            <Glyph script={script} size={22} />
           </span>
-          <div className="grow">
-            <h2>{script.name}</h2>
-            {script.description && <p className="desc">{script.description}</p>}
-          </div>
+          <h2 className="grow">{script.name}</h2>
           <button className={`ib ${favourite ? "fav" : ""}`} aria-pressed={favourite} title={favourite ? "Remove from favourites" : "Add to favourites"} onClick={onFavourite}>
             <Star size={17} fill={favourite ? "currentColor" : "none"} />
           </button>
@@ -244,6 +289,7 @@ export function Panel({
             <X size={17} />
           </button>
         </div>
+        {script.description && <p className="desc">{script.description}</p>}
         {menu && <Menu x={menu.x} y={menu.y} label="Script" items={menuItems} onClose={() => setMenu(null)} />}
       </header>
 
@@ -274,7 +320,7 @@ export function Panel({
             }}
           >
             {label}
-            {extra && <span className="muted"> {extra}</span>}
+            {extra && <span className="count">{extra}</span>}
             {id === "schedule" && scheduleOn && (
               // On is green; a failing schedule says so in red words, not just a dot.
               schedLast?.status === "failed" ? (
@@ -290,13 +336,14 @@ export function Panel({
       <div className="panel-body">
         {tab === "run" && (
           <div role="tabpanel" id="panel-run" aria-labelledby="tab-run" className="run-tab">
+            {failFirst && output}
             {script.error && (
               <div className="callout bad">
                 <b>This script can't be opened. It has a mistake in it.</b>
                 <pre className="err-text">{script.error}</pre>
                 {agent && (
                   <button className="link" onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}>
-                    Fix it for me
+                    Ask {agent.name} to fix it
                   </button>
                 )}
               </div>
@@ -313,7 +360,7 @@ export function Panel({
                     See what happened
                   </button>
                 </span>
-                {errLine(lastFailed) && <span className="err-text">{plainError(errLine(lastFailed))}</span>}
+                {errLine(lastFailed) && <span className="err-text">{friendlyError(errLine(lastFailed)) ?? plainError(errLine(lastFailed))}</span>}
               </div>
             )}
 
@@ -387,52 +434,7 @@ export function Panel({
               </div>
             )}
 
-            {run && (
-              <section className="run-output" aria-label="Output">
-                {!live && (
-                  <div className="run-head small">
-                    <span className={`dot ${run.status}`} aria-hidden />
-                    <span className={run.status === "failed" ? "bad-text" : ""}>{STATUS[run.status]}</span>
-                    <span className="muted">
-                      {fmtAgo(run.endedAt ?? run.startedAt)}
-                      {SOURCE[run.source] ? ` · ${SOURCE[run.source]}` : ""}
-                    </span>
-                    <span className="grow" />
-                    <button className="link" onClick={() => setShownRun(null)}>
-                      Hide
-                    </button>
-                  </div>
-                )}
-                {!live && Object.keys(run.params).length > 0 && <div className="run-with muted small">With {fmtParams(run.params, script.params)}</div>}
-                <RunOutput
-                  key={run.id}
-                  run={run}
-                  onAnswer={(id, v) => api.answer(run.id, id, v).catch((e) => setMsg({ text: e.message, tone: "bad" }))}
-                  footer={
-                    (run.status === "failed" || shownIsOld) && (
-                      <div className="row wrap after-run">
-                        {shownIsOld && (
-                          <button
-                            onClick={() => {
-                              const before = values;
-                              setValues({ ...values, ...run.params });
-                              setMsg({ text: "Filled the form with this run's values.", tone: "note", undo: () => setValues(before) });
-                            }}
-                          >
-                            Use these values
-                          </button>
-                        )}
-                        {run.status === "failed" && agent && (
-                          <button onClick={() => fixFailure(run)} title={`Asks ${agent.name} to find and fix the problem`}>
-                            Fix it for me
-                          </button>
-                        )}
-                      </div>
-                    )
-                  }
-                />
-              </section>
-            )}
+            {run && !failFirst && output}
           </div>
         )}
 
@@ -443,34 +445,40 @@ export function Panel({
               <section key={day} className="hist-day">
                 <h3>{day}</h3>
                 <ul className="hist">
-                  {collapseRepeats(rows).map(({ run: h, count, since }) => (
-                    <li key={h.id}>
-                      <button
-                        className={`hist-row ${h.id === runId ? "on" : ""}`}
-                        title={fmtParams(h.params, script.params) || undefined}
-                        onClick={() => {
-                          setShownRun(h.id);
-                          setTab("run");
-                        }}
-                      >
-                        <span className={`dot ${h.status}`} aria-hidden />
-                        <span className="hist-main">
-                          <span className={h.status === "failed" ? "bad-text" : h.status === "waiting" ? "warn-text" : ""}>
-                            {STATUS[h.status]}
-                            {count > 1 && ` ${count} times in a row`}
+                  {collapseRepeats(rows).map(({ run: h, count, since }) => {
+                    const err = h.status === "failed" && h.error ? (friendlyError(h.error) ?? plainError(h.error)) : "";
+                    const vals = fmtParams(h.params, script.params);
+                    return (
+                      <li key={h.id}>
+                        <button
+                          className={`hist-row ${h.id === runId ? "on" : ""}`}
+                          onClick={() => {
+                            setShownRun(h.id);
+                            setTab("run");
+                          }}
+                        >
+                          <span className={`dot ${h.status}`} aria-hidden />
+                          <span className="hist-main">
+                            <span className="hist-line">
+                              <span className={h.status === "failed" ? "bad-text" : h.status === "waiting" ? "warn-text" : ""}>
+                                {STATUS[h.status]}
+                                {count > 1 && ` ${count} times`}
+                              </span>
+                              <span className="hist-meta">
+                                {count > 1 && since ? `${clock(since)} – ` : ""}
+                                {clock(h.startedAt)}
+                                {/* Only durations people care about: a minute or more. */}
+                                {h.endedAt && h.endedAt - h.startedAt >= 60_000 ? ` · took ${fmtDur(h.endedAt - h.startedAt)}` : ""}
+                                {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
+                              </span>
+                            </span>
+                            {(err || vals) && <span className={`hist-params ${err ? "bad-text" : ""}`}>{err || vals}</span>}
                           </span>
-                          <span className="muted">
-                            {" "}
-                            {count > 1 && since ? `${clock(since)} – ` : ""}
-                            {clock(h.startedAt)}
-                            {/* Only durations people care about: a minute or more. */}
-                            {h.endedAt && h.endedAt - h.startedAt >= 60_000 ? ` · took ${fmtDur(h.endedAt - h.startedAt)}` : ""}
-                            {SOURCE[h.source] ? ` · ${SOURCE[h.source]}` : ""}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                          <ChevronRight size={16} className="hist-chev" aria-hidden />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             ))}
@@ -533,12 +541,13 @@ function groupByDay<T extends { startedAt: number }>(list: T[]): [string, T[]][]
 
 const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-/** Back-to-back automatic runs that ended the same way become one row: "Failed 7 times in a row". */
+/** Back-to-back runs that ended the same way, from the same place with the same values, become one row: "Failed 7 times". */
 function collapseRepeats<T extends RunSummary>(rows: T[]): { run: T; count: number; since: number | null }[] {
   const out: { run: T; count: number; since: number | null }[] = [];
   for (const r of rows) {
     const prev = out[out.length - 1];
-    if (prev && r.source === "schedule" && prev.run.source === "schedule" && r.status === prev.run.status && !isLive(r)) {
+    const same = prev && r.source === prev.run.source && r.status === prev.run.status && JSON.stringify(r.params) === JSON.stringify(prev.run.params);
+    if (same && !isLive(r) && !isLive(prev.run)) {
       prev.count++;
       prev.since = r.startedAt;
     } else out.push({ run: r, count: 1, since: null });

@@ -21,11 +21,11 @@ const ICONS: Record<string, LucideIcon> = {
 };
 
 /**
- * Packet colours. Each script keeps its colour (it starts from a hash of its id), and
+ * Script colours. Each script keeps its colour (it starts from a hash of its id), and
  * colours are handed out so none repeats until all are used. Red and orange are left
  * out on purpose: red means "failed".
  */
-export const HUES = 10;
+export const HUES = 6;
 let hues = new Map<string, number>();
 let hueKey = "";
 export function setHueIds(ids: string[]) {
@@ -57,7 +57,7 @@ export function Glyph({ script, size = 26 }: { script: Pick<Script, "name" | "ic
   return <Shown size={size} strokeWidth={1.9} aria-hidden />;
 }
 
-/** A small square in the script's packet colour with its icon, for lists and folder fronts. */
+/** A small square in the script's colour with its icon. */
 export function ScriptIcon({ script, size = 40 }: { script: Pick<Script, "id" | "name" | "icon">; size?: number }) {
   return (
     <span className={`glyph hue-${hueOf(script.id)}`} style={{ width: size, height: size, borderRadius: Math.round(size / 4.5) }} aria-hidden>

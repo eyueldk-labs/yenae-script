@@ -1,5 +1,6 @@
 import type { ParamSpec } from "./api";
 import { PathField, lastPart } from "./PathField";
+import { store } from "./store";
 
 export function labelOf(key: string, spec: ParamSpec) {
   if (spec.label) return spec.label;
@@ -13,6 +14,17 @@ export function defaults(params: Record<string, ParamSpec>): Record<string, unkn
     out[k] = p.default ?? (p.kind === "boolean" ? false : p.kind === "select" ? p.options?.[0]?.value : "");
   }
   return out;
+}
+
+/**
+ * The values a script's form starts from: whichever is newer, what you last typed or the
+ * values of its last run (which may have been a scheduled or agent run).
+ */
+export function startValues(script: { id: string; params: Record<string, ParamSpec> }, lastRun?: { params: Record<string, unknown>; startedAt: number } | null) {
+  const typed = store.get<Record<string, unknown> | null>(`values:${script.id}`, null);
+  const typedAt = store.get<number>(`valuesAt:${script.id}`, 0);
+  const fromRun = !!lastRun && Object.keys(lastRun.params).length > 0 && lastRun.startedAt > typedAt;
+  return { values: { ...defaults(script.params), ...(fromRun ? lastRun!.params : (typed ?? {})) }, fromRun };
 }
 
 /** Keys of required params that are empty. */
