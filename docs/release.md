@@ -28,7 +28,7 @@ Two jobs run side by side:
 
 - Engine, SDK and examples: tested on Linux (`bun test`), including running scripts, prompts, stop, schedules and MCP.
 - UI: checked in Chromium at desktop and phone widths, light and dark.
-- Tauri shell: compiles on Linux.
+- Tauri shell: builds a Linux `.deb` here (bundled Bun and engine included).
 - **Not verified:** the Windows build. Things to check by hand on the first Windows build:
   - the bundled `bun.exe` starts and the window shows scripts
   - Browse buttons on file and folder inputs open the Windows picker

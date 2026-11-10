@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Star } from "lucide-react";
 import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script, State } from "./api";
-import { FolderIcon, ScriptIcon } from "./icons";
+import { Glyph, hueOf } from "./icons";
 import { Menu, type MenuEntry } from "./Menu";
 import { fmtValue, labelOf } from "./Form";
 import { fmtAgo, lastLabel, isLive } from "./fmt";
@@ -190,7 +190,7 @@ export function Home({
     return (
       <button
         key={`${where}:${id}`}
-        className={`tile card ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
+        className={`tile card packet ${selected === id ? "sel" : ""} ${d ? `drop-${d}` : ""}`}
         data-tile
         data-id={id}
         data-where={where}
@@ -244,16 +244,13 @@ export function Home({
           onTileDrop(id, false, inFav, zone(e, inFav));
         }}
       >
-        <ScriptIcon script={s} size={40} />
-        <span className="card-text">
+        <span className={`packet-front hue-${hueOf(s.id)}`}>
+          <Glyph script={s} size={30} />
+          {b && <Sticker badge={b} />}
+        </span>
+        <span className="packet-label">
           <span className="card-name">{s.name}</span>
-          {b && (
-            <span className={`card-status ${b.kind}`}>
-              <span className={`dot ${b.kind === "error" ? "failed" : b.kind}`} aria-hidden />
-              {b.text}
-            </span>
-          )}
-          <span className={`card-sub ${b ? "one" : ""}`}>{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
+          <span className="card-sub">{[meta, s.description ?? asksFor(s)].filter(Boolean).join(" · ")}</span>
         </span>
       </button>
     );
@@ -267,7 +264,7 @@ export function Home({
     return (
       <button
         key={f.id}
-        className={`tile card folder ${openFolder === f.id ? "open" : ""} ${d ? `drop-${d}` : ""}`}
+        className={`tile card packet folder ${openFolder === f.id ? "open" : ""} ${d ? `drop-${d}` : ""}`}
         data-tile
         data-id={f.id}
         draggable
@@ -306,19 +303,19 @@ export function Home({
           onTileDrop(f.id, true, false, zone(e, false));
         }}
       >
-        <FolderIcon scripts={kids} size={40} />
-        <span className="card-text">
+        <span className="packet-front folder-front">
+          {kids.slice(0, 3).map((k, i) => (
+            <span key={k.id} className={`mini hue-${hueOf(k.id)}`} style={{ ["--i" as any]: i, ["--n" as any]: Math.min(3, kids.length) }}>
+              <Glyph script={k} size={16} />
+            </span>
+          ))}
+          {worst && <Sticker badge={worst} />}
+        </span>
+        <span className="packet-label">
           <span className="card-name">{f.name}</span>
-          {worst ? (
-            <span className={`card-status ${worst.kind}`}>
-              <span className={`dot ${worst.kind === "error" ? "failed" : worst.kind}`} aria-hidden />
-              {worst.kind === "running" ? "Running…" : worst.kind === "waiting" ? "Waiting for your answer" : "Something failed"}
-            </span>
-          ) : (
-            <span className="card-sub one">
-              {kids.length} script{kids.length === 1 ? "" : "s"}
-            </span>
-          )}
+          <span className="card-sub">
+            Folder · {kids.length} script{kids.length === 1 ? "" : "s"}
+          </span>
         </span>
       </button>
     );
@@ -557,6 +554,16 @@ function InputChip({ name, spec }: { name: string; spec: ParamSpec }) {
       {labelOf(name, spec)}
       {shown && <span className="chip-val"> {shown}</span>}
       {spec.optional && <span className="chip-val">?</span>}
+    </span>
+  );
+}
+
+/** The round label on a packet's front that says, in a word or two, what needs attention. */
+function Sticker({ badge }: { badge: Exclude<Badge, null> }) {
+  const word = { failed: "Failed", error: "Broken", waiting: "Needs you", running: "Running" }[badge.kind];
+  return (
+    <span className={`sticker ${badge.kind}`} title={badge.text}>
+      {word}
     </span>
   );
 }

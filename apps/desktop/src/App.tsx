@@ -203,6 +203,7 @@ export function App() {
       <div className="catalog">
         {(
           <div className="bar">
+            <span className="wordmark">Yenae Script</span>
             <div className="search">
               <input
                 ref={search}

@@ -6,7 +6,7 @@ import { RunOutput, plainError } from "./Output";
 import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
 import { Menu, type MenuEntry } from "./Menu";
-import { ScriptIcon } from "./icons";
+import { Glyph, hueOf } from "./icons";
 import { MOD, SOURCE, STATUS, fmtAgo, fmtDur, fmtParams, isLive } from "./fmt";
 import { store } from "./store";
 
@@ -184,14 +184,17 @@ export function Panel({
   const shownIsOld = !!run && !isLive(run) && params.length > 0 && JSON.stringify(run.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
 
   return (
-    <aside ref={root} className={`panel ${wide ? "wide" : ""}`} aria-label={script.name}>
+    // The panel wears the script's packet colour: its header is the packet front.
+    <aside ref={root} className={`panel hue-${hueOf(script.id)} ${wide ? "wide" : ""}`} aria-label={script.name}>
       <header className="panel-head">
         <button className="ib back-btn" onClick={onClose} aria-label="Back to scripts">
           <ChevronLeft size={18} />
           Scripts
         </button>
         <div className="panel-title">
-          <ScriptIcon script={script} size={40} />
+          <span className="panel-glyph">
+            <Glyph script={script} size={26} />
+          </span>
           <div className="grow">
             <h2>{script.name}</h2>
             {script.description && <p className="desc">{script.description}</p>}
