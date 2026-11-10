@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Star } from "lucide-react";
+import { ChevronLeft, FolderPlus, Star } from "lucide-react";
 import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script, State } from "./api";
 import { Glyph, hueOf } from "./icons";
 import { Menu, type MenuEntry } from "./Menu";
@@ -10,14 +10,11 @@ import { folderOf, folderWith, moveFavourite, moveFolder, moveScript, moveToFold
 type Folder = Extract<LayoutItem, { type: "folder" }>;
 type Badge = { kind: "failed" | "waiting" | "running" | "error"; text: string } | null;
 
-/** Cards are at least this wide; the grid fits as many columns as it can. */
-const CARD = 220;
-const GAP = 8;
 
 /** What a tile's corner says, most urgent first. */
 export function badgeOf(script: Script, state: State, runs: Record<string, RunDetail>): Badge {
   const live = Object.values(runs).find((r) => r.script === script.id && isLive(r));
-  if (live?.status === "waiting") return { kind: "waiting", text: "Waiting for your answer" };
+  if (live?.status === "waiting") return { kind: "waiting", text: "Needs your answer" };
   if (live) return { kind: "running", text: "Running…" };
   const sched = state.schedules.find((s) => s.script === script.id && s.enabled);
   const last = sched?.last ? (runs[sched.last.id] ?? sched.last) : null;
@@ -55,6 +52,7 @@ export function Home({
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; folder?: boolean } | null>(null);
   const [peek, setPeek] = useState<{ id: string; rect: DOMRect } | null>(null);
   const peekTimer = useRef<number | undefined>(undefined);
+  const peekFor = useRef<string | null>(null);
   const drag = useRef<{ id: string; folder: boolean; fav: boolean } | null>(null);
   const [drop, setDrop] = useState<{ ref: string; kind: string } | null>(null);
 
@@ -84,7 +82,8 @@ export function Home({
   // ---- hover preview ----
   const hover = (id: string | null, el?: HTMLElement) => {
     clearTimeout(peekTimer.current);
-    if (!id || drag.current) return setPeek(null);
+    // No preview while a script is open beside the catalog: the panel already says it all.
+    if (!id || drag.current || selected) return setPeek(null);
     peekTimer.current = window.setTimeout(() => el!.isConnected && setPeek({ id, rect: el!.getBoundingClientRect() }), 450);
   };
   // Keyboard focus shows the same preview, so details aren't mouse-only.
@@ -219,8 +218,16 @@ export function Home({
             nudge(id, where, e.key === "ArrowLeft" ? -1 : 1);
           } else tileKeys(e);
         }}
-        onMouseEnter={(e) => hover(id, e.currentTarget)}
-        onMouseLeave={() => hover(null)}
+        onMouseMove={(e) => {
+          if (peek?.id !== id && peekFor.current !== id) {
+            peekFor.current = id;
+            hover(id, e.currentTarget);
+          }
+        }}
+        onMouseLeave={() => {
+          peekFor.current = null;
+          hover(null);
+        }}
         onDragStart={(e) => {
           hover(null);
           drag.current = { id, folder: false, fav: inFav };
@@ -326,9 +333,11 @@ export function Home({
     requestAnimationFrame(() =>
       document.querySelector<HTMLElement>(`.home [data-tile][data-id="${CSS.escape(id)}"]${where ? `[data-where="${CSS.escape(where)}"]` : ""}`)?.focus(),
     );
+  // Opening a folder moves focus to its back link; closing returns it to the folder's packet.
   const toggleFolder = (id: string | null, focusId?: string) => {
     setOpenFolder(id);
-    if (focusId) refocus(focusId);
+    if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(".home .back-link")?.focus());
+    else if (focusId) refocus(focusId);
   };
 
   // Alt+Left/Right moves a script one place within its row of tiles (favourites, a folder, or the top level).
@@ -350,25 +359,8 @@ export function Home({
     refocus(id, where);
   };
 
-  // Arrow keys move to the nearest tile in that direction, across sections and folders.
-  // Columns come from the catalog's own width, which stays put while folders open and close.
+  // Arrow keys move to the nearest tile in that direction, across sections.
   const root = useRef<HTMLDivElement>(null);
-  const [cols, setCols] = useState(3);
-  const [colW, setColW] = useState(CARD);
-  useLayoutEffect(() => {
-    const el = root.current!;
-    const fit = () => {
-      const cs = getComputedStyle(el);
-      const w = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-      const n = Math.max(1, Math.floor((w + GAP) / (CARD + GAP)));
-      setCols(n);
-      setColW((w - GAP * (n - 1)) / n);
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
   const tileKeys = (e: React.KeyboardEvent) => {
     const dir = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] }[e.key];
     if (!dir) return;
@@ -392,81 +384,70 @@ export function Home({
     else if (e.key === "ArrowUp") document.querySelector<HTMLElement>(".search input")?.focus();
   };
 
-  const shownItems = layout.items.filter((i) => i.type === "folder" || !layout.favourites.includes(i.id));
+  const renameBox = (f: Folder) => (
+    <input
+      className="rename"
+      autoFocus
+      defaultValue={f.name === "New folder" ? "" : f.name}
+      placeholder="Folder name"
+      aria-label="Folder name"
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => {
+        onLayout(renameFolder(layout, f.id, e.currentTarget.value || f.name));
+        setRenaming(null);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          setRenaming(null);
+        }
+      }}
+    />
+  );
 
-  // ---- the open folder's drawer, placed after the row that holds the folder ----
-  const drawer = (f: Folder) => (
-    <div className="drawer" key={`drawer:${f.id}`} style={{ ["--x" as any]: `${(shownItems.findIndex((i) => i.id === f.id) % cols) * (colW + GAP) + 26}px` }} {...dropZoneProps(f.id)}>
-      <div className="drawer-head">
-        {renaming === f.id ? (
-          <input
-            className="rename"
-            autoFocus
-            defaultValue={f.name}
-            aria-label="Folder name"
-            onFocus={(e) => e.currentTarget.select()}
-            onBlur={(e) => {
-              onLayout(renameFolder(layout, f.id, e.currentTarget.value));
-              setRenaming(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                setRenaming(null);
-              }
-            }}
-          />
-        ) : (
-          <h3>{f.name}</h3>
-        )}
-        <span className="muted small">{f.scripts.length}</span>
-        <span className="grow" />
-        {renaming !== f.id && (
-          <button className="link small" onClick={() => setRenaming(f.id)}>
-            Rename
-          </button>
-        )}
-      </div>
-      <div className="tiles" data-tiles>
-        {f.scripts.map((id) => scriptTile(id, f.id))}
-      </div>
+  // A dashed spot at the end of the grid: drop a script on it to start a folder.
+  const [newDrop, setNewDrop] = useState(false);
+  const newFolderSpot = (
+    <div
+      className={`new-folder ${newDrop ? "over" : ""}`}
+      onDragOver={(e) => {
+        if (!drag.current || drag.current.folder) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setNewDrop(true);
+      }}
+      onDragLeave={() => setNewDrop(false)}
+      onDrop={(e) => {
+        const d = drag.current;
+        drag.current = null;
+        setNewDrop(false);
+        setDrop(null);
+        if (!d || d.folder) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const { layout: next, created } = folderWith(layout, d.id);
+        onLayout(next);
+        setOpenFolder(created);
+        setRenaming(created);
+      }}
+    >
+      <FolderPlus size={20} aria-hidden />
+      <span>
+        <b>New folder</b>
+        <span className="muted small">Drag a script here</span>
+      </span>
     </div>
   );
 
-  // Tiles flow in a grid; an open folder splits it after its row so its drawer spans the window.
-  const itemsGrid = (all: LayoutItem[]) => {
-    // A favourite moves up to Favourites instead of showing twice (inside a folder it stays too).
-    const items = all.filter((i) => i.type === "folder" || !layout.favourites.includes(i.id));
-    const openAt = items.findIndex((i) => i.id === openFolder);
-    const tile = (it: LayoutItem) => (it.type === "folder" ? folderTile(it) : scriptTile(it.id, "items"));
-    if (openAt < 0)
-      return (
-        <div className="tiles" data-tiles>
-          {items.map(tile)}
-        </div>
-      );
-    const cut = Math.min(items.length, Math.floor(openAt / cols) * cols + cols);
-    return (
-      <>
-        <div className="tiles" data-tiles>
-          {items.slice(0, cut).map(tile)}
-        </div>
-        {drawer(items[openAt] as Folder)}
-        {cut < items.length && (
-          <div className="tiles" data-tiles>
-            {items.slice(cut).map(tile)}
-          </div>
-        )}
-      </>
-    );
-  };
-
+  // ---- views ----
   // ---- views ----
   const noScripts = state.scripts.length === 0;
   const favs = layout.favourites.filter((id) => byId.has(id));
   // Favourites are shortcuts: the script also stays in its usual place.
-  const hasFolders = layout.items.some((i) => i.type === "folder");
+  // A favourite moves up to Favourites instead of showing twice (inside a folder it stays too).
+  const shown = layout.items.filter((i) => i.type === "folder" || !layout.favourites.includes(i.id));
+  const openF = layout.items.find((i): i is Folder => i.type === "folder" && i.id === openFolder) ?? null;
   const preview = peek && byId.get(peek.id);
 
   return (
@@ -501,6 +482,41 @@ export function Home({
         </section>
       ) : (
         <>
+          {openF ? (
+            <section {...dropZoneProps(openF.id)} aria-label={openF.name}>
+              <div className="folder-head">
+                <button
+                  className="ib back-link"
+                  onClick={() => toggleFolder(null, openF.id)}
+                  onDragOver={(e) => drag.current && !drag.current.folder && e.preventDefault()}
+                  onDrop={(e) => {
+                    const d = drag.current;
+                    drag.current = null;
+                    if (!d || d.folder) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onLayout(moveToFolder(layout, d.id, null));
+                  }}
+                >
+                  <ChevronLeft size={18} aria-hidden />
+                  All scripts
+                </button>
+              </div>
+              <div className="folder-title">
+                {renaming === openF.id ? renameBox(openF) : <h2 className="sec">{openF.name}</h2>}
+                {renaming !== openF.id && (
+                  <button className="link" onClick={() => setRenaming(openF.id)}>
+                    Rename
+                  </button>
+                )}
+              </div>
+              <div className="tiles" data-tiles>
+                {openF.scripts.map((id) => scriptTile(id, openF.id))}
+              </div>
+              <p className="tip muted small">Drag a script out onto “All scripts” to take it out of the folder.</p>
+            </section>
+          ) : (
+          <>
           <section {...dropZoneProps("fav")}>
             <h2 className="sec">
               <Star size={13} fill="currentColor" className="fav" /> Favourites
@@ -515,11 +531,13 @@ export function Home({
           </section>
           <section {...dropZoneProps("items")}>
             <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
-            {itemsGrid(layout.items)}
-            {!hasFolders && state.scripts.length > 1 && (
-              <p className="tip muted small">Tip: drag a script onto another to put them in a folder.</p>
-            )}
+            <div className="tiles" data-tiles>
+              {shown.map((it) => (it.type === "folder" ? folderTile(it) : scriptTile(it.id, "items")))}
+              {state.scripts.length > 1 && newFolderSpot}
+            </div>
           </section>
+          </>
+          )}
         </>
       )}
 
@@ -561,8 +579,10 @@ function InputChip({ name, spec }: { name: string; spec: ParamSpec }) {
 /** The round label on a packet's front that says, in a word or two, what needs attention. */
 function Sticker({ badge }: { badge: Exclude<Badge, null> }) {
   const word = { failed: "Failed", error: "Broken", waiting: "Needs you", running: "Running" }[badge.kind];
+  const dot = badge.kind === "error" ? "failed" : badge.kind;
   return (
     <span className={`sticker ${badge.kind}`} title={badge.text}>
+      <span className={`dot ${dot}`} aria-hidden />
       {word}
     </span>
   );
@@ -584,6 +604,10 @@ function Peek({ script, rect, last, every, folder }: { script: Script; rect: DOM
     const r = box.current!.getBoundingClientRect();
     let top = rect.bottom + 6;
     if (top + r.height > innerHeight - 8) top = rect.top - r.height - 6;
+    // Beside the card (right, or left when there's no room), level with its top; below it on narrow screens.
+    const right = rect.right + 10, left = rect.left - r.width - 10;
+    if (right + r.width <= innerWidth - 8) return setPos({ left: right, top: Math.max(8, Math.min(rect.top, innerHeight - r.height - 8)) });
+    if (left >= 8) return setPos({ left, top: Math.max(8, Math.min(rect.top, innerHeight - r.height - 8)) });
     setPos({ left: Math.max(8, Math.min(rect.left + rect.width / 2 - r.width / 2, innerWidth - r.width - 8)), top: Math.max(8, top) });
   }, [rect]);
   return (

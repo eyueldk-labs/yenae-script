@@ -3,7 +3,7 @@ import { fmtValue, labelOf } from "./Form";
 
 export const STATUS: Record<RunStatus, string> = {
   running: "Running",
-  waiting: "Waiting for your answer",
+  waiting: "Needs your answer",
   ok: "Done",
   failed: "Failed",
   stopped: "Stopped",
@@ -56,7 +56,7 @@ export function fmtParams(p: Record<string, unknown>, specs: Record<string, Para
 
 /** A script's last run in a few words: "Failed 2 min ago", "Waiting for you". */
 export function lastLabel(r: RunSummary) {
-  if (r.status === "waiting") return "Waiting for your answer";
+  if (r.status === "waiting") return "Needs your answer";
   if (r.status === "running") return "Running now";
   return `${STATUS[r.status]} ${fmtAgo(r.endedAt ?? r.startedAt)}`;
 }

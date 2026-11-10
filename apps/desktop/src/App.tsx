@@ -236,9 +236,9 @@ export function App() {
                 Reconnecting…
               </span>
             )}
-            <button className="new-btn" onClick={() => setDialog("new")}>
-              <Plus size={16} />
-              New script
+            <button className="new-btn" onClick={() => setDialog("new")} aria-label="New script" title="New script">
+              <Plus size={16} aria-hidden />
+              <span className="label">New script</span>
             </button>
             <button className="ib" title="Settings" aria-label="Settings" onClick={() => setDialog("settings")}>
               <Settings size={18} />
@@ -253,7 +253,7 @@ export function App() {
                 <li key={n.run} className={`alert ${n.kind}`}>
                   <span className={`dot ${n.kind}`} aria-hidden />
                   <span className="grow">
-                    <b>{n.name}</b> {n.kind === "waiting" ? "is waiting for your answer" : `failed ${n.when}`}
+                    <b>{n.name}</b> {n.kind === "waiting" ? "needs your answer" : `failed ${n.when}`}
                   </span>
                   <button className={n.kind === "waiting" ? "primary" : ""} onClick={() => open(n.id, { run: n.run })}>
                     {n.kind === "waiting" ? "Answer" : "See why"}
@@ -287,6 +287,8 @@ export function App() {
           setRuns={setRuns}
           opening={opening}
           favourite={state.layout.favourites.includes(script.id)}
+          layout={state.layout}
+          onLayout={saveLayout}
           wide={wide}
           onFavourite={() => saveLayout(toggleFavourite(state.layout, script.id))}
           onWide={() => setWide((w) => !w)}

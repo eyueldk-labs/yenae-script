@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Ellipsis, Star, X, ChevronLeft } from "lucide-react";
-import type { Api, RunDetail, RunSummary, Script, State } from "./api";
+import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
+import { folderOf, folderWith, moveToFolder } from "./layoutOps";
 import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing } from "./Form";
 import { RunOutput, plainError } from "./Output";
 import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
@@ -27,6 +28,8 @@ export function Panel({
   setRuns,
   opening,
   favourite,
+  layout,
+  onLayout,
   wide,
   onFavourite,
   onWide,
@@ -39,13 +42,30 @@ export function Panel({
   setRuns: React.Dispatch<React.SetStateAction<Record<string, RunDetail>>>;
   opening: Opening;
   favourite: boolean;
+  layout: Layout;
+  onLayout: (l: Layout) => void;
   wide: boolean;
   onFavourite: () => void;
   onWide: () => void;
   onClose: () => void;
 }) {
   const schedule = state.schedules.find((s) => s.script === script.id) ?? null;
-  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...defaults(script.params), ...store.get(`values:${script.id}`, {}) }));
+  // The form starts from whichever is newer: what you last typed, or the values of the last run
+  // (which may have been a scheduled or agent run). Either way you rarely retype.
+  const [initial] = useState(() => {
+    const typed = store.get<Record<string, unknown> | null>(`values:${script.id}`, null);
+    const typedAt = store.get<number>(`valuesAt:${script.id}`, 0);
+    const lastRun = state.lastRuns[script.id];
+    const fromRun = !!lastRun && Object.keys(lastRun.params).length > 0 && lastRun.startedAt > typedAt;
+    return { values: { ...defaults(script.params), ...(fromRun ? lastRun!.params : (typed ?? {})) }, fromRun };
+  });
+  const [values, setValuesRaw] = useState<Record<string, unknown>>(initial.values);
+  const [prefilled, setPrefilled] = useState(initial.fromRun && Object.keys(script.params).length > 0);
+  const setValues = (v: Record<string, unknown>) => {
+    setValuesRaw(v);
+    setPrefilled(false);
+    store.set(`valuesAt:${script.id}`, Date.now());
+  };
   const [invalid, setInvalid] = useState<string[]>([]);
   const [history, setHistory] = useState<RunSummary[]>([]);
   // The run shown under the form: one started or opened here. Older runs are in History.
@@ -173,10 +193,18 @@ export function Panel({
     setEditWith({ title: "Fix this script", text: `This run failed${r.exitCode ? ` with exit code ${r.exitCode}` : ""}.\n${err || r.error || ""}\n\nFind the cause and fix it.` });
   };
 
+  const home = folderOf(layout, script.id);
   const menuItems: MenuEntry[] = [
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
     ...(agent ? [{ label: `Edit with ${agentName}…`, onSelect: () => setEditWith({ title: `Edit with ${agentName}`, text: "" }) }] : []),
     { label: wide ? "Show all scripts" : "Wider view", onSelect: onWide },
+    "separator",
+    { heading: "Move to folder" },
+    ...layout.items
+      .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder" && i.id !== home?.id)
+      .map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, script.id, f.id)) })),
+    ...(home ? [{ label: `Out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, script.id, null)) }] : []),
+    { label: "New folder", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
   ];
 
   // A failed last run that isn't on screen yet gets a one-line summary above the form.
@@ -226,7 +254,7 @@ export function Panel({
           [
             ["run", "Run", ""],
             ["history", "History", history.length ? String(history.length) : ""],
-            ["schedule", "Schedule", scheduleOn ? "on" : ""],
+            ["schedule", "Schedule", ""],
           ] as const
         ).map(([id, label, extra]) => (
           <button
@@ -249,8 +277,15 @@ export function Panel({
           >
             {label}
             {extra && <span className="muted"> {extra}</span>}
-            {id === "schedule" && scheduleOn && schedLast && (schedLast.status === "failed" || schedLast.status === "waiting") && (
-              <span className={`dot ${schedLast.status}`} aria-label={STATUS[schedLast.status]} />
+            {id === "schedule" && scheduleOn && (
+              // On is green; a failing schedule says so in red words, not just a dot.
+              schedLast?.status === "failed" ? (
+                <span className="tab-state bad-text">· Failing</span>
+              ) : (
+                <span className="tab-state">
+                  <span className="dot ok" aria-hidden /> On
+                </span>
+              )
             )}
           </button>
         ))}
@@ -304,6 +339,14 @@ export function Panel({
               </div>
             ) : (
               <>
+                {prefilled && (
+                  <p className="muted small prefill">
+                    Filled in from the last run.{" "}
+                    <button className="link" onClick={() => setValues(defaults(script.params))}>
+                      Clear
+                    </button>
+                  </p>
+                )}
                 {params.length > 0 ? (
                   <div className="run-form">
                     <ParamForm

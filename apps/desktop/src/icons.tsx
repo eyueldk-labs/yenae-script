@@ -21,7 +21,7 @@ const ICONS: Record<string, LucideIcon> = {
 };
 
 /** Eight tile colours; a script keeps the same one because it comes from its id. */
-export const HUES = 8;
+export const HUES = 10;
 export function hueOf(id: string) {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;

@@ -63,6 +63,8 @@ export function SchedulePanel({
   };
 
   const shownValues = on ? schedule!.params : values;
+  // Required values the Run tab is still missing: a schedule can't start without them.
+  const needs = on ? [] : missing(script.params, values);
 
   // Intervals in words; anything else stays possible under "Other…".
   const presets: [string, string][] = [
@@ -109,7 +111,7 @@ export function SchedulePanel({
             Turn off
           </button>
         ) : (
-          <button className="primary" disabled={busy || !!script.error || !every.trim()} onClick={() => save(true, values)}>
+          <button className="primary" disabled={busy || !!script.error || !every.trim() || needs.length > 0} onClick={() => save(true, values)}>
             Turn on
           </button>
         )}
@@ -144,7 +146,13 @@ export function SchedulePanel({
           )}
         </div>
         {custom && <div className="hint">A number and s, m, h or d: 30s, 10m, 2h, 1d.</div>}
-        {!on && <div className="hint">Turning it on runs it once now.</div>}
+        {!on && (
+          <div className={`hint ${needs.length ? "bad" : ""}`}>
+            {needs.length
+              ? `Fill in ${needs.map((k) => labelOf(k, script.params[k]!)).join(", ")} on the Run tab first.`
+              : "Turning it on runs it once now."}
+          </div>
+        )}
       </div>
 
       {script.asks && (
@@ -169,12 +177,13 @@ export function SchedulePanel({
       {params.length > 0 && (
         <section className="sched-values">
           <div className="row">
-            <h3>{on ? "It uses these values" : "It will use the values from the Run tab"}</h3>
+            <h3>Runs with these values</h3>
             {on && !editing && (
               <button className="link" onClick={() => setEditing({ ...schedule!.params })}>
-                Change
+                Edit
               </button>
             )}
+            {!on && <span className="muted small">from the Run tab</span>}
           </div>
           {editing ? (
             <>

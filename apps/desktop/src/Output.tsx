@@ -197,7 +197,7 @@ function AskCard({ req, onAnswer }: { req: AskRequest; onAnswer: (v: unknown) =>
           <input
             id="ask-input"
             ref={input}
-            className={`grow ${isPath ? "mono" : ""}`}
+            className="grow"
             type={req.kind === "text" && req.secret ? "password" : "text"}
             placeholder={isPath ? `${req.kind === "file" ? "File" : "Folder"} path` : ""}
             value={text}

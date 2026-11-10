@@ -1,4 +1,5 @@
-import { isTauri, pickPath, type ParamSpec } from "./api";
+import type { ParamSpec } from "./api";
+import { PathField } from "./PathField";
 
 export function labelOf(key: string, spec: ParamSpec) {
   if (spec.label) return spec.label;
@@ -133,27 +134,15 @@ function Field({
     case "file":
     case "folder":
       input = (
-        <div className="row">
-          <input
-            id={fid}
-            {...a11y}
-            className="grow mono"
-            value={String(value ?? "")}
-            placeholder={spec.kind === "folder" ? "Folder path" : "File path"}
-            onChange={(e) => onChange(e.target.value)}
-          />
-          {isTauri() && (
-            <button
-              type="button"
-              onClick={async () => {
-                const p = await pickPath(spec.kind as "file" | "folder", label);
-                if (p) onChange(p);
-              }}
-            >
-              Browse
-            </button>
-          )}
-        </div>
+        <PathField
+          id={fid}
+          kind={spec.kind}
+          title={label}
+          value={String(value ?? "")}
+          invalid={invalid}
+          describedBy={hint ? hintId : undefined}
+          onChange={onChange}
+        />
       );
       break;
     default:

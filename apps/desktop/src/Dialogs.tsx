@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { isTauri, pickPath, type Api, type State } from "./api";
+import { isTauri, type Api, type State } from "./api";
+import { PathField } from "./PathField";
 
 type Harness = { id: string; name: string };
 
@@ -292,21 +293,10 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
       <div className="form">
         <div className="field">
           <label htmlFor="st-ws">Scripts folder</label>
-          <div className="row">
-            <input id="st-ws" className="grow mono" value={workspace} onChange={(e) => setWorkspace(e.target.value)} />
-            {isTauri() && (
-              <button
-                type="button"
-                onClick={async () => {
-                  const p = await pickPath("folder", "Scripts folder");
-                  if (p) setWorkspace(p);
-                }}
-              >
-                Browse
-              </button>
-            )}
+          <PathField id="st-ws" kind="folder" title="Scripts folder" value={workspace} onChange={setWorkspace} describedBy="st-ws-hint" />
+          <div className="hint" id="st-ws-hint">
+            Where your scripts live. Each folder inside it is a group of scripts.
           </div>
-          <div className="hint">Each folder in it with a package.json is a project.</div>
         </div>
 
         {autostart !== null && (
@@ -321,27 +311,30 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
                 setAutostart(await a.isEnabled());
               }}
             />
-            Start with {state.platform === "win32" ? "Windows" : state.platform === "darwin" ? "macOS" : "the system"}, so schedules keep running
+            Start with {state.platform === "win32" ? "Windows" : state.platform === "darwin" ? "macOS" : "the computer"}, so schedules keep running
           </label>
         )}
 
-        <div className="field">
-          <label>MCP server for agents</label>
-          <code className="block">{state.mcpUrl}</code>
-          <div className="hint">Agents started in the scripts folder pick it up from .mcp.json. Elsewhere, add it with:</div>
-          <code className="block">{cmd("•••")}</code>
-          <div>
-            <button
-              type="button"
-              className="link"
-              onClick={() => {
-                navigator.clipboard?.writeText(cmd(api.token)).then(() => setCopied(true));
-              }}
-            >
-              {copied ? "Copied" : "Copy command"}
-            </button>
+        <details className="more">
+          <summary>For developers</summary>
+          <div className="field">
+            <label>MCP server for coding agents</label>
+            <code className="block">{state.mcpUrl}</code>
+            <div className="hint">Agents started in the scripts folder find it on their own. Elsewhere, add it with:</div>
+            <code className="block">{cmd("•••")}</code>
+            <div>
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  navigator.clipboard?.writeText(cmd(api.token)).then(() => setCopied(true));
+                }}
+              >
+                {copied ? "Copied" : "Copy command"}
+              </button>
+            </div>
           </div>
-        </div>
+        </details>
 
         {err && (
           <div className="msg bad" role="alert">
@@ -349,25 +342,33 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
           </div>
         )}
         <div className="row end">
-          <button type="button" className="ghost" onClick={onClose}>
-            Close
-          </button>
-          <button
-            type="button"
-            className="primary"
-            disabled={workspace === state.workspace}
-            onClick={async () => {
-              try {
-                await api.settings(workspace);
-                onSaved();
-                onClose();
-              } catch (e: any) {
-                setErr(e.message);
-              }
-            }}
-          >
-            Save
-          </button>
+          {workspace === state.workspace ? (
+            // Nothing to save (autostart applies at once): one way out.
+            <button type="button" className="primary" onClick={onClose}>
+              Done
+            </button>
+          ) : (
+            <>
+              <button type="button" className="ghost" onClick={onClose}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={async () => {
+                  try {
+                    await api.settings(workspace);
+                    onSaved();
+                    onClose();
+                  } catch (e: any) {
+                    setErr(e.message);
+                  }
+                }}
+              >
+                Save
+              </button>
+            </>
+          )}
         </div>
       </div>
     </Dialog>
