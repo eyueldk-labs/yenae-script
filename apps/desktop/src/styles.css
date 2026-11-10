@@ -272,6 +272,9 @@ button.card.folder { flex-direction: row; align-items: center; gap: 12px; paddin
 .hist-day h3 { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 0 0 4px; }
 .drop-hint { border: 1.5px dashed var(--control-line); border-radius: 14px; padding: 12px 14px; margin: 0; }
 
+/* A new version of the app: one quiet row above everything. */
+.update-bar { display: flex; align-items: center; gap: 10px; margin: 0 20px 12px; padding: 6px 6px 6px 14px; min-height: 46px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--ok) 30%, var(--line)); background: color-mix(in srgb, var(--ok) 5%, var(--bg)); }
+@media (max-width: 760px) { .update-bar { margin: 0 16px 12px; } }
 /* What needs you: one row each in a single box, above everything else. */
 .alerts { list-style: none; margin: 0 20px 18px; padding: 0; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); }
 .alert { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; min-height: 46px; }

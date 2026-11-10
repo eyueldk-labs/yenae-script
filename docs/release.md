@@ -2,27 +2,35 @@
 
 The workflow is [`.github/workflows/release.yml`](../.github/workflows/release.yml). It runs only when you ask, so normal pushes use no Actions minutes.
 
-## Make an installer
+## One-time setup
+
+1. **Make the repository public.** Installed apps check `https://github.com/eyueldk-labs/yenae-script/releases/latest/download/latest.json` for new versions, which only works for a public repository.
+2. **Add the signing key.** Settings → Secrets and variables → Actions → New repository secret, named `TAURI_SIGNING_PRIVATE_KEY`, holding the private key (it has no password). Keep a copy somewhere safe: installed apps only accept updates signed with this key, so losing it means everyone reinstalls by hand. The matching public key is `plugins.updater.pubkey` in `apps/desktop/src-tauri/tauri.conf.json`. To make a new pair: `bun x tauri signer generate --ci -p "" -w yenae-updater.key` (then update the pubkey and the secret).
+
+## Make a release
 
 Either:
 
-- **From GitHub:** Actions → release → Run workflow.
-- **With a tag:** set `version` in `apps/desktop/src-tauri/tauri.conf.json`, commit, then:
+- **From GitHub:** Actions → release → Run workflow, and type the new version (e.g. `0.2.0`). Leave it empty to use the version in `tauri.conf.json`.
+- **With a tag:** `git tag v0.2.0` then `git push origin v0.2.0` (the tag sets the version).
 
-  ```bash
-  git tag v0.1.0
-  ```
+Each release needs a version higher than the last, or installed apps won't see it as an update.
 
-  ```bash
-  git push origin v0.1.0
-  ```
-
-Both build Windows (`.exe` setup) and Linux (`.deb` and `.AppImage`). macOS is left out for now. The installers land on a **draft** release named `v<version>` (Releases page). Check it, then publish it.
+Both build Windows (`.exe` setup) and Linux (`.deb` and `.AppImage`), and publish them straight away as release `v<version>` with `latest.json` (the signed update info). macOS is left out for now.
 
 Two jobs run side by side:
 
 - **test**: typecheck and `bun test` on Linux and Windows.
-- **build**: the installer. It doesn't wait for tests, so a test that fails on a new platform still leaves an installer to try; the red test job says what broke.
+- **build**: the installers and update files. It doesn't wait for tests, so a test that fails on a new platform still leaves an installer to try; the red test job says what broke.
+
+## Updates
+
+The app checks for a newer release a few seconds after it starts and every six hours. When there is one, a row at the top says "Version 0.2.0 is ready" with **Update and restart**; Settings shows the current version and **Check for updates**. On Windows the update runs the installer quietly and reopens the app; the Linux `.AppImage` replaces itself. The `.deb` doesn't self-update (install the new `.deb`).
+
+## Uninstall
+
+- **Windows:** Settings → Apps → Installed apps → Yenae Script → Uninstall (or Control Panel → Programs). The uninstaller stops the app and its bundled Bun, removes "Start with Windows", and offers to delete app data (history, settings). Your scripts folder (`~/yenae-scripts` by default) is never touched.
+- **Linux:** `sudo apt remove yenae-script` for the `.deb`; delete the file for the `.AppImage`.
 
 ## What's verified
 

@@ -1,16 +1,22 @@
-# Builds installers and attaches them to a draft GitHub release.
+# Builds installers and publishes them as a GitHub release, with the signed
+# update files (latest.json) that installed apps check for new versions.
 #
-# Runs only when you push a version tag (v0.1.0) or start it by hand from the
-# Actions tab, so normal pushes use no Actions minutes. Builds Windows and Linux.
+# Runs only when you push a version tag (v0.2.0) or start it by hand from the
+# Actions tab (where you can type the version), so normal pushes use no Actions
+# minutes. Builds Windows and Linux.
 #
-# Release: set "version" in apps/desktop/src-tauri/tauri.conf.json, commit, then
-#   git tag v0.1.0 && git push origin v0.1.0
+# Needs the repository secret TAURI_SIGNING_PRIVATE_KEY (see docs/release.md).
 name: release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.2.0 (empty: the one in tauri.conf.json)"
+        required: false
+        default: ""
 
 concurrency:
   group: release-${{ github.ref }}
@@ -62,12 +68,37 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev
+      - name: Check the signing key is set
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Add the TAURI_SIGNING_PRIVATE_KEY repository secret first (docs/release.md)."
+            exit 1
+          fi
+      # A version typed when starting the run (or taken from a v1.2.3 tag) goes into the app.
+      - name: Set the version
+        shell: bash
+        env:
+          INPUT: ${{ github.event.inputs.version }}
+          REF: ${{ github.ref_name }}
+        run: |
+          v="$INPUT"
+          if [ -z "$v" ] && [[ "$REF" == v* ]]; then v="${REF#v}"; fi
+          if [ -n "$v" ]; then
+            V="$v" bun -e "const f='apps/desktop/src-tauri/tauri.conf.json';const c=JSON.parse(await Bun.file(f).text());c.version=process.env.V;await Bun.write(f,JSON.stringify(c,null,2)+'\n')"
+          fi
+          grep '"version"' apps/desktop/src-tauri/tauri.conf.json
       - run: bun install --frozen-lockfile
       # Builds the engine and downloads the pinned Bun that the app ships as its sidecar.
       - run: bun scripts/prepare.ts --target ${{ matrix.target }}
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the update files; installed apps only accept updates signed with this key.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           projectPath: apps/desktop
           tauriScript: bun x tauri
@@ -75,6 +106,11 @@ jobs:
           # __VERSION__ is the version in tauri.conf.json, so a manual run makes v0.1.0 too.
           tagName: v__VERSION__
           releaseName: Yenae Script v__VERSION__
-          releaseBody: Unsigned build. On Windows, SmartScreen may warn; choose "More info", then "Run anyway".
-          releaseDraft: true
+          releaseBody: |
+            Windows: download the `.exe` setup below and run it. SmartScreen may warn (the installer isn't code-signed); choose "More info", then "Run anyway".
+            Linux: the `.AppImage` (updates itself) or the `.deb`.
+            Already installed? The app offers this update on its own.
+          # Published at once, so installed apps see it as the latest release.
+          releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true

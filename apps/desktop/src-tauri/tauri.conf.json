@@ -28,10 +28,41 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "appimage", "deb"],
-    "externalBin": ["binaries/bun"],
-    "resources": { "resources/engine/": "engine/" },
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "windows": { "nsis": { "installMode": "currentUser" } }
+    "targets": [
+      "nsis",
+      "appimage",
+      "deb"
+    ],
+    "externalBin": [
+      "binaries/bun"
+    ],
+    "resources": {
+      "resources/engine/": "engine/"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzMkEyNEY5QUY2ODgxRkIKUldUN2dXaXYrU1FxODZjM0xsL1RpRC9hSEoyWUxUTXZQd2YzVklGNWxoODErS0tDenpQWEtwNjYK",
+      "endpoints": [
+        "https://github.com/eyueldk-labs/yenae-script/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

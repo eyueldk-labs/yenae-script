@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { isTauri, type Api, type State } from "./api";
 import { PathField } from "./PathField";
+import { appVersion, checkUpdate, installUpdate, type Update } from "./updates";
 
 type Harness = { id: string; name: string };
 
@@ -283,6 +284,54 @@ export function EditWithDialog({
   );
 }
 
+/** "Version 0.1.0 · Check for updates", and an update button when there is one. */
+function VersionRow() {
+  const [version, setVersion] = useState<string | null>(null);
+  const [state, setState] = useState<{ text: string; update?: Update } | null>(null);
+  useEffect(() => {
+    appVersion().then(setVersion).catch(() => {});
+  }, []);
+  if (!version) return null;
+  return (
+    <div className="field">
+      <label>App</label>
+      <div className="row wrap">
+        <span>Version {version}</span>
+        {state?.update ? (
+          <button
+            type="button"
+            className="primary small-btn"
+            onClick={() => {
+              setState({ text: "Updating… the app restarts by itself." });
+              installUpdate().catch((e) => setState({ text: `Couldn't update: ${e?.message ?? e}` }));
+            }}
+          >
+            Update to {state.update.version} and restart
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="small-btn"
+            onClick={() => {
+              setState({ text: "Checking…" });
+              checkUpdate()
+                .then((u) => setState(u ? { text: `Version ${u.version} is ready.`, update: u } : { text: "You have the latest version." }))
+                .catch((e) => setState({ text: `Couldn't check: ${e?.message ?? e}` }));
+            }}
+          >
+            Check for updates
+          </button>
+        )}
+      </div>
+      {state && (
+        <div className="hint" role="status">
+          {state.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; state: State; onClose: () => void; onSaved: () => void }) {
   const [workspace, setWorkspace] = useState(state.workspace);
   const [err, setErr] = useState<string | null>(null);
@@ -323,6 +372,8 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
             Start with {state.platform === "win32" ? "Windows" : state.platform === "darwin" ? "macOS" : "the computer"}, so schedules keep running
           </label>
         )}
+
+        <VersionRow />
 
         <details className="more">
           <summary>For developers</summary>

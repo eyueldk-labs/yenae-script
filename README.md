@@ -68,6 +68,10 @@ bun run app:build         # installer for this OS
 
 Hotkey: `Ctrl+Shift+Space` (`Cmd+Shift+Space` on macOS) shows or hides the window. Closing the window keeps the app in the tray so schedules keep running.
 
+## Install, update, uninstall
+
+Download the Windows setup (`.exe`) or Linux `.AppImage`/`.deb` from [Releases](https://github.com/eyueldk-labs/yenae-script/releases/latest). The app updates itself (it offers each new release at the top of the window and in Settings). Uninstall from Windows Settings → Apps. See [docs/release.md](docs/release.md) for making releases.
+
 ## Status
 
 Built and tested on Linux. Windows and macOS builds have not been run yet; see [docs/release.md](docs/release.md).

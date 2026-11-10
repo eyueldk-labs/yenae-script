@@ -10,6 +10,7 @@ use tauri::{
     AppHandle, Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
@@ -102,11 +103,40 @@ fn start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn quit(app: &AppHandle) {
-    // Closing the engine's stdin makes it stop running scripts and exit.
+/// Closing the engine's stdin makes it stop running scripts and exit.
+fn stop_engine(app: &AppHandle) {
     drop(app.state::<Engine>().child.lock().unwrap().take());
     std::thread::sleep(std::time::Duration::from_millis(400));
+}
+
+fn quit(app: &AppHandle) {
+    stop_engine(app);
     app.exit(0);
+}
+
+/// A newer version, if there is one: `{ version, notes }`.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
+    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    Ok(update.map(|u| serde_json::json!({ "version": u.version, "notes": u.body })))
+}
+
+/// Downloads and installs the newest version, then starts it. The engine stops first so the
+/// installer can replace its files (on Windows a running bun.exe would be locked).
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("You already have the latest version.")?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+    stop_engine(&app);
+    // On Windows this hands over to the installer, which closes the app and reopens it.
+    update.install(bytes).map_err(|e| e.to_string())?;
+    app.restart();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -116,6 +146,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
@@ -130,7 +161,7 @@ pub fn run() {
                 .build(),
         )
         .manage(Engine::default())
-        .invoke_handler(tauri::generate_handler![engine_info, set_attention])
+        .invoke_handler(tauri::generate_handler![engine_info, set_attention, check_update, install_update])
         .setup(|app| {
             let handle = app.handle().clone();
             if let Err(e) = start_engine(&handle) {

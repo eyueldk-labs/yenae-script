@@ -10,6 +10,7 @@ import { isLive } from "./fmt";
 import { toggleFavourite } from "./layoutOps";
 import { store } from "./store";
 import { setHueIds } from "./icons";
+import { checkUpdate, installUpdate, type Update } from "./updates";
 
 export function App() {
   const [api, setApi] = useState<Api | null>(null);
@@ -117,6 +118,22 @@ export function App() {
   if (state) setHueIds(state.scripts.map((s) => s.id));
   const [allAlerts, setAllAlerts] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // A newer version of the app: checked shortly after start, then every six hours.
+  const [update, setUpdate] = useState<Update | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+  useEffect(() => {
+    const check = () => checkUpdate().then(setUpdate).catch(() => {});
+    const first = setTimeout(check, 8_000);
+    const every = setInterval(check, 6 * 3600_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, []);
+  const doUpdate = () => {
+    setUpdating("Updating… the app restarts by itself.");
+    installUpdate().catch((e) => setUpdating(`Couldn't update: ${e?.message ?? e}`));
+  };
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const attention = useMemo(() => (state ? attentionOf(state, runs) : { needs: [], running: [] }), [state, runs, tick]);
 
@@ -302,6 +319,20 @@ export function App() {
           </div>
         )}
         <main className="catalog-body" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}>
+          {!query && update && (
+            <div className="update-bar" role="status">
+              <span className="dot ok" aria-hidden />
+              <span className="grow">{updating ?? <>Version {update.version} is ready.</>}</span>
+              {!updating && (
+                <button className="primary small-btn" onClick={doUpdate}>
+                  Update and restart
+                </button>
+              )}
+              <button className="ib" aria-label="Later" title="Later" onClick={() => setUpdate(null)}>
+                <X size={16} aria-hidden />
+              </button>
+            </div>
+          )}
           {!query && alerts.length > 0 && (
             // What needs the user: one row each, each with the one thing to do about it. Two at most
             // until "more" is pressed. An alert for the script already open is hidden (the panel says it).
