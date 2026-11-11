@@ -165,11 +165,24 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_LANGDLL_REGISTRY_KEY "${MANUPRODUCTKEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Installer Language"
 
-; Yenae Script: a one-click installer. No welcome, folder or finish pages: it installs
-; for the current user into the default folder and opens the app. (Forked from Tauri's
+; Yenae Script: a short installer the person goes through on purpose. One page says what
+; is about to happen with an Install button (no folder or other choices: it installs for
+; the current user into the default folder), then progress, then a page with "Open Yenae
+; Script" and Finish. Updates (passive or silent) skip every page. (Forked from Tauri's
 ; template for @tauri-apps/cli 2.12.4; refresh it when upgrading the CLI.)
 ; Installer pages, must be ordered as they appear
-; 1. Welcome Page: left out (one-click)
+; 1. Welcome Page: what will happen, and an Install button
+!define MUI_WELCOMEPAGE_TITLE "Install Yenae Script"
+!define MUI_WELCOMEPAGE_TEXT "Yenae Script runs your own small scripts with a click: fill in a form, press Run, or let it run on a schedule.$\r$\n$\r$\nIt installs for your Windows account only and adds it to the Start menu and your desktop. It takes about half a minute.$\r$\n$\r$\nClick Install to set it up."
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW WelcomeShow
+!insertmacro MUI_PAGE_WELCOME
+
+; The welcome page's button says what it does.
+Function WelcomeShow
+  GetDlgItem $0 $HWNDPARENT 1
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:&Install"
+FunctionEnd
 
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""
@@ -426,9 +439,19 @@ Var AppStartMenuFolder
 ; 7. Installation page
 !insertmacro MUI_PAGE_INSTFILES
 
-; 8. Finish page: left out (one-click). The install page closes by itself and the
-;    app opens (see .onInstSuccess).
-AutoCloseWindow true
+; 8. Finish page: "Open Yenae Script" (ticked) and Finish. The progress page moves on
+;    to it by itself.
+!define MUI_FINISHPAGE_TITLE "Yenae Script is installed"
+!define MUI_FINISHPAGE_TEXT "Find it in the Start menu or on your desktop. Closing its window keeps it in the tray, so your scheduled scripts keep running."
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_TEXT "Open Yenae Script"
+!define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!insertmacro MUI_PAGE_FINISH
+
+Function RunMainBinary
+  nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
+FunctionEnd
 
 ; Uninstaller Pages
 ; 1. Confirm uninstall page
@@ -767,7 +790,7 @@ SectionEnd
 
 Function .onInstSuccess
   ; Silent and passive installs (updates) restart the app only when asked with /R,
-  ; passing /ARGS on. A normal install (someone ran the setup) always opens it.
+  ; passing /ARGS on. A normal install opens it from the finish page, if the person chooses.
   ${If} $PassiveMode = 1
   ${OrIf} ${Silent}
     ${GetOptions} $CMDLINE "/R" $R0
@@ -775,8 +798,6 @@ Function .onInstSuccess
       ${GetOptions} $CMDLINE "/ARGS" $R0
       nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
     ${EndIf}
-  ${Else}
-    nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
   ${EndIf}
 FunctionEnd
 
