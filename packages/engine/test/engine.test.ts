@@ -127,3 +127,27 @@ test("busy while a run is live", async () => {
   await engine.runs.whenDone(run.id);
   expect(engine.busy().reason).not.toBe("a script is running");
 }, 30_000);
+
+test("an agent's work shows as a run of the script: steps, messages, done", async () => {
+  const { AGENTS } = await import("../src/agents");
+  const claude = AGENTS.find((a) => a.id === "claude")!;
+  const lines = [
+    { type: "system", subtype: "init" },
+    { type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: "/ws/p/scripts/x.ts" } }] } },
+    { type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__yenae-script__run_script", input: {} }] } },
+    { type: "assistant", message: { content: [{ type: "text", text: "It now lists your files." }] } },
+    { type: "result", subtype: "success", is_error: false, result: "It now lists your files." },
+  ];
+  const code = `for (const l of ${JSON.stringify(lines.map((l) => JSON.stringify(l)))}) console.log(l);`;
+  const run = engine.runs.startAgent("p/scripts/ask.ts", claude, [process.execPath, "-e", code], process.cwd(), undefined, "list files");
+  // An agent at work holds back updates (a restart would cut it off), but not schedules.
+  expect(engine.busy().reason).toBe("a script is being written");
+  expect(engine.runs.isRunning("p/scripts/ask.ts")).toBe(false);
+  const done = await engine.runs.whenDone(run.id);
+  expect(done.status).toBe("ok");
+  const ev = engine.store.getRun(run.id)!.events as any[];
+  const sys = ev.filter((e) => e.t === "sys").map((e) => e.text);
+  expect(sys).toContain("Writing x.ts");
+  expect(sys).toContain("Trying the script");
+  expect(ev.filter((e) => e.t === "show").length).toBe(1); // the final summary isn't repeated
+}, 30_000);

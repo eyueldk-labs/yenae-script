@@ -17,7 +17,7 @@ type Badge = { kind: "failed" | "waiting" | "running" | "error"; text: string } 
 export function badgeOf(script: Script, state: State, runs: Record<string, RunDetail>): Badge {
   const live = Object.values(runs).find((r) => r.script === script.id && isLive(r));
   if (live?.status === "waiting") return { kind: "waiting", text: "Needs your answer" };
-  if (live) return { kind: "running", text: "Running…" };
+  if (live) return { kind: "running", text: live.source === "agent" ? `${live.params.agent ?? "AI"} is writing it` : "Running now" };
   const sched = state.schedules.find((s) => s.script === script.id && s.enabled);
   const last = sched?.last ? (runs[sched.last.id] ?? sched.last) : null;
   if (last?.status === "failed") return { kind: "failed", text: `Failed ${fmtAgo(last.endedAt ?? last.startedAt)}` };
@@ -637,7 +637,7 @@ function CardFoot({ script, values, last, every, badge }: { script: Script; valu
   const done = last && !isLive(last) ? last : null;
   // Status is a dot and a few words, the same on every card; the strip at the top is the loud one.
   const status = badge
-    ? { kind: badge.kind === "error" ? "failed" : badge.kind, text: badge.kind === "waiting" ? "Waiting for your answer" : badge.kind === "running" ? "Running now" : badge.text }
+    ? { kind: badge.kind === "error" ? "failed" : badge.kind, text: badge.kind === "waiting" ? "Waiting for your answer" : badge.text }
     : unset.length
       ? { kind: "waiting", text: `Needs setup: ${unset.map(([k, p]) => splitUnit(labelOf(k, p)).name).join(", ")}` }
       : done

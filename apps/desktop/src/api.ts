@@ -1,5 +1,8 @@
 /** Client for the engine's local API. */
 
+/** A coding agent installed on this computer ("Claude Code", short "Claude"). */
+export type Harness = { id: string; name: string; short: string };
+
 export interface ParamSpec {
   kind: "text" | "number" | "boolean" | "select" | "file" | "folder";
   label?: string;
@@ -52,7 +55,7 @@ export interface RunSummary {
   id: string;
   script: string;
   params: Record<string, unknown>;
-  source: "manual" | "schedule" | "mcp";
+  source: "manual" | "schedule" | "mcp" | "agent";
   status: RunStatus;
   exitCode: number | null;
   error: string | null;
@@ -94,7 +97,7 @@ export interface State {
   /** The newest run of each script, by script id. */
   lastRuns: Record<string, RunSummary>;
   layout: Layout;
-  harnesses: { id: string; name: string }[];
+  harnesses: Harness[];
   platform: string;
 }
 
@@ -167,10 +170,14 @@ export class Api {
   saveLayout = (layout: Layout) => this.req<Layout>("/api/layout", { layout });
   settings = (workspace: string) => this.req<State>("/api/settings", { workspace });
   newProject = (name: string) => this.req<{ id: string }>("/api/project", { name });
+  /** Creates a script; with an agent, it starts writing it (`run` is that agent's run). */
   newScript = (project: string, file: string, description: string, harness?: string) =>
-    this.req<{ id: string }>("/api/script", { project, file, description, harness });
+    this.req<{ id: string; run: string | null }>("/api/script", { project, file, description, harness });
+  /** Has an agent change a script, in the background; returns the agent's run. */
   editWith = (script: string, harness: string, instructions: string) =>
-    this.req("/api/edit-with", { script, harness, instructions });
+    this.req<{ run: string }>("/api/edit-with", { script, harness, instructions });
+  aiClients = () => this.req<import("./AiConnect").AiClient[]>("/api/ai");
+  connectAi = (id: string) => this.req<import("./AiConnect").AiClient[]>("/api/ai/connect", { id });
   open = (script: string) => this.req("/api/open", { script });
 
   listen(onMsg: (m: ServerMsg) => void, onStatus: (up: boolean) => void) {

@@ -8,7 +8,7 @@ import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
 import { Menu, type MenuEntry } from "./Menu";
 import { Glyph, hueOf } from "./icons";
-import { MOD, SOURCE, STATUS, fmtAgo, fmtDur, fmtParams, isLive, lastLabel } from "./fmt";
+import { MOD, SOURCE, STATUS, agentOf, fmtAgo, fmtDur, fmtParams, isLive, lastLabel } from "./fmt";
 import { store } from "./store";
 
 export type Tab = "run" | "history" | "schedule";
@@ -218,7 +218,7 @@ export function Panel({
                 {!isLive(run) && (
                   <div className="run-head small">
                     <span className={`dot ${run.status}`} aria-hidden />
-                    <span className={run.status === "failed" ? "bad-text" : ""}>{STATUS[run.status]}</span>
+                    <span className={run.status === "failed" ? "bad-text" : ""}>{runLabel(run)}</span>
                     <span className="muted" title={new Date(run.startedAt).toLocaleString()}>
                       · {clock(run.startedAt)} ({fmtAgo(run.endedAt ?? run.startedAt)})
                       {SOURCE[run.source] ? ` · ${SOURCE[run.source]}` : ""}
@@ -231,7 +231,8 @@ export function Panel({
                     )}
                   </div>
                 )}
-                {!isLive(run) && run.status !== "failed" && Object.keys(run.params).length > 0 && <div className="run-with muted small">With {fmtParams(run.params, script.params)}</div>}
+                {!isLive(run) && agentOf(run) && <div className="run-with muted small">Asked: {String(run.params.task ?? "")}</div>}
+                {!isLive(run) && !agentOf(run) && run.status !== "failed" && Object.keys(run.params).length > 0 && <div className="run-with muted small">With {fmtParams(run.params, script.params)}</div>}
                 <RunOutput
                   key={run.id}
                   run={run}
@@ -366,7 +367,7 @@ export function Panel({
                 <span className={`dot ${live.status}`} aria-hidden />
                 <div className="grow">
                   <div className="live-status" role="status">
-                    {STATUS[live.status]}
+                    {live.source === "agent" ? `${agentOf(live)} is working on this script` : STATUS[live.status]}
                   </div>
                   <div className="muted small">
                     Started {fmtAgo(live.startedAt)}
@@ -461,7 +462,7 @@ export function Panel({
                   {collapseRepeats(rows).map(({ run: h, count, since }, i, all) => {
                     const err = h.status === "failed" && h.error ? (friendlyError(h.error) ?? plainError(h.error)) : "";
                     // Values only where they change from the row above.
-                    const vals = fmtParams(h.params, script.params);
+                    const vals = agentOf(h) ? String(h.params.task ?? "") : fmtParams(h.params, script.params);
                     const prevVals = i > 0 ? fmtParams(all[i - 1]!.run.params, script.params) : null;
                     return (
                       <li key={h.id}>
@@ -473,7 +474,7 @@ export function Panel({
                           <span className="hist-main">
                             <span className="hist-line">
                               <span className="hist-status">
-                                {STATUS[h.status]}
+                                {runLabel(h)}
                                 {count > 1 && ` ${count} times`}
                               </span>
                               <span className="hist-meta">
@@ -528,7 +529,7 @@ export function Panel({
             setEditWith(null);
             api
               .editWith(script.id, h.id, what)
-              .then(() => setMsg({ text: "Opened a new window to make the change.", tone: "note" }))
+              .then(() => setTab("run"))
               .catch((e) => setMsg({ text: e.message, tone: "bad" }));
           }}
         />
@@ -568,4 +569,13 @@ function collapseRepeats<T extends RunSummary>(rows: T[]): { run: T; count: numb
     } else out.push({ run: r, count: 1, since: null });
   }
   return out;
+}
+
+/** "Done", or for an agent's work "Changed by Claude" / "Claude couldn't finish". */
+function runLabel(r: RunSummary) {
+  const a = agentOf(r);
+  if (!a) return STATUS[r.status];
+  if (r.status === "ok") return `Changed by ${a}`;
+  if (r.status === "failed") return `${a} couldn't finish`;
+  return STATUS[r.status];
 }

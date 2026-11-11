@@ -544,3 +544,18 @@ code.block { display: block; padding: 6px 8px; background: var(--code); border-r
 .dialog-actions { position: sticky; bottom: -20px; margin: 0 -20px -20px; padding: 12px 20px 20px; background: var(--bg); }
 .pick-list { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow: auto; }
 .pick-list legend { font-weight: 500; margin-bottom: 8px; }
+
+/* Settings: AI apps, one row each (name, Connect or Connected, steps on request). */
+.ai-connect { gap: 6px; }
+.ai-list { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; }
+.ai-row { padding: 10px 12px; }
+.ai-row + .ai-row { border-top: 1px solid var(--line); }
+.ai-head { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.ai-name { flex: 1; min-width: 0; font-weight: 500; }
+.ai-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); font-size: 13px; font-weight: 600; }
+.ai-how { display: inline-flex; align-items: center; gap: 2px; min-height: 32px; }
+.ai-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.ai-connect > button.link { align-self: flex-start; margin-top: 4px; }
+.code-box { display: flex; align-items: flex-start; gap: 8px; padding: 8px 8px 8px 10px; border-radius: var(--radius); background: var(--code); }
+.code-box code { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-box .small-btn { flex: none; }

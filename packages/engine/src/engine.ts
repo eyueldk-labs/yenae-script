@@ -5,7 +5,9 @@ import { Runs } from "./runs";
 import { Scheduler } from "./scheduler";
 import { scanWorkspace, type Project, type ScriptInfo } from "./scan";
 import { ensureWorkspace, createProject, createScript, seedExamples } from "./workspace";
-import { detectHarnesses, launchHarness, openInEditor } from "./launch";
+import { openInEditor } from "./launch";
+import { agentCommand, detectAgents } from "./agents";
+import { aiClients, connectAiClient, ensureBridge } from "./ai-clients";
 import { insideWorkspace, parseEvery } from "./paths";
 import type { RunSource, RunSummary } from "./db";
 import { normalizeLayout, type Layout } from "./layout";
@@ -89,6 +91,7 @@ export class Engine {
     mkdirSync(this.settings.workspace, { recursive: true });
     ensureWorkspace(this.settings.workspace, { url: this.mcpUrl, token: this.settings.token });
     if (this.opts.examples !== false) seedExamples(this.settings.workspace);
+    ensureBridge(this.settings.workspace);
     this.watcher?.close();
     let debounce: Timer | undefined;
     try {
@@ -162,7 +165,7 @@ export class Engine {
       ),
       recent: this.store.listRuns(undefined, 12).map((r) => (this.runs.live.has(r.id) ? summarize(this.runs.get(r.id)!) : r)),
       live: [...this.runs.live.keys()].map((id) => this.runs.get(id)),
-      harnesses: detectHarnesses(),
+      harnesses: detectAgents(),
       platform: process.platform,
     };
   }
@@ -172,7 +175,10 @@ export class Engine {
    * update): a script is running or waiting for an answer, or a schedule is due soon.
    */
   busy(withinMs = 5 * 60_000): { busy: boolean; reason?: string } {
-    if (this.runs.live.size) return { busy: true, reason: "a script is running" };
+    const live = [...this.runs.live.values()];
+    if (live.some((r) => r.source !== "agent")) return { busy: true, reason: "a script is running" };
+    // Restarting would cut an agent off halfway through changing a script.
+    if (live.length) return { busy: true, reason: "a script is being written" };
     const soon = Date.now() + withinMs;
     const due = this.store.schedules().find((s) => s.enabled && s.nextRun !== null && s.nextRun <= soon);
     if (due) return { busy: true, reason: "a schedule is about to run" };
@@ -208,23 +214,46 @@ export class Engine {
   async newScript(project: string, file: string, description: string, harness?: string) {
     const id = createScript(this.settings.workspace, project, file, description);
     await this.rescan();
-    if (harness) this.editWith(id, harness, description);
-    return id;
+    const run = harness ? this.editWith(id, harness, description, true) : null;
+    return { id, run };
   }
 
-  editWith(scriptId: string, harness: string, instructions: string) {
+  /**
+   * Has a coding agent write or change a script, in the background: no terminal window.
+   * It shows as a run of the script (live steps, Stop, history). Returns the run id.
+   */
+  editWith(scriptId: string, harness: string, instructions: string, isNew = false) {
     const file = scriptId;
-    const prompt = `You are working in a Yenae Script workspace. Read AGENTS.md first.
+    const prompt = `You are working in a Yenae Script workspace (a folder of small TypeScript scripts). Read AGENTS.md first: it explains defineScript, the form fields, ask and show.
 
 Task: ${instructions.trim() || "Improve this script."}
 
 Script file: ${file}
-${existsSync(insideWorkspace(this.settings.workspace, file)) ? "Edit that file." : "Create that file."}
+${isNew ? "It holds a placeholder: replace it with the real script." : "Change that file."}
 
-When it's written, use the yenae-script MCP tools to run it and check the output.
-Add npm packages to the project's package.json with \`bun add\` in the project folder if needed.
+Give it a clear name, a one-line description in plain words, an icon, and form fields with labels (and units, like "Older than (days)") for anything a person would want to change.
+When it's written, if you have the yenae-script MCP tools (run_script, get_run), use them to run it once and check it works; fix it if not. If it needs an npm package, add it with \`bun add\` in the project folder.
+The person using this app may not be technical. Finish with one or two plain sentences saying what the script does now.
 `;
-    launchHarness(harness, this.settings.workspace, prompt);
+    const { agent, argv, stdin } = agentCommand(harness, this.settings.workspace, prompt);
+    const run = this.runs.startAgent(scriptId, agent, argv, this.settings.workspace, stdin, instructions.trim() || "Improve this script.");
+    // The agent changed files: pick them up when it's done.
+    this.runs.whenDone(run.id).then(() => this.rescan());
+    return run.id;
+  }
+
+  /** AI apps on this computer that can use Yenae Script, and how to connect each. */
+  aiClients() {
+    return aiClients(this.mcpConn);
+  }
+
+  connectAiClient(id: string) {
+    connectAiClient(id, this.mcpConn);
+    return this.aiClients();
+  }
+
+  private get mcpConn() {
+    return { url: this.mcpUrl, token: this.settings.token, bun: process.execPath, workspace: this.settings.workspace };
   }
 
   open(scriptId: string) {

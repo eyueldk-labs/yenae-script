@@ -3,8 +3,9 @@ import { X } from "lucide-react";
 import { isTauri, type Api, type State } from "./api";
 import { PathField } from "./PathField";
 import { applyUpdate, checkUpdates, useUpdateStatus } from "./updates";
+import { AiConnect } from "./AiConnect";
 
-type Harness = { id: string; name: string };
+import type { Harness } from "./api";
 
 let openDialogs = 0;
 /** True while a dialog is open, so page-level shortcuts stand down. */
@@ -163,7 +164,7 @@ export function NewScriptDialog({
             onChange={(e) => setWhat(e.target.value)}
           />
           {agent ? (
-            <div className="hint">We'll write the script for you. It takes a minute or two and opens in a new window.</div>
+            <div className="hint">{agent.short} writes it for you, right here. It takes a minute or two, and you can watch it work.</div>
           ) : (
             state.harnesses.length === 0 && (
               <div className="hint">This makes an empty script. Install Claude Code, Codex, Gemini CLI or OpenCode to have one written for you.</div>
@@ -270,7 +271,7 @@ export function EditWithDialog({
             </select>
           </div>
         )}
-        <div className="hint">{agent.name} opens in its own window and makes the change.</div>
+        <div className="hint">{agent.short} makes the change right here; you can watch it work.</div>
         <div className="row wrap end dialog-actions">
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
@@ -336,15 +337,11 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
   const [workspace, setWorkspace] = useState(state.workspace);
   const [err, setErr] = useState<string | null>(null);
   const [autostart, setAutostart] = useState<boolean | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!isTauri()) return;
     import("@tauri-apps/plugin-autostart").then((a) => a.isEnabled().then(setAutostart)).catch(() => {});
   }, []);
-
-  const cmd = (token: string) =>
-    `claude mcp add --transport http yenae-script ${state.mcpUrl} --header "Authorization: Bearer ${token}"`;
 
   return (
     <Dialog title="Settings" onClose={onClose}>
@@ -369,32 +366,13 @@ export function SettingsDialog({ api, state, onClose, onSaved }: { api: Api; sta
                 setAutostart(await a.isEnabled());
               }}
             />
-            Start with {state.platform === "win32" ? "Windows" : state.platform === "darwin" ? "macOS" : "the computer"}, so schedules keep running
+            Open Yenae Script when you sign in, so scheduled scripts keep running
           </label>
         )}
 
         <VersionRow />
 
-        <details className="more">
-          <summary>For developers</summary>
-          <div className="field">
-            <label>MCP server for coding agents</label>
-            <code className="block">{state.mcpUrl}</code>
-            <div className="hint">Agents started in the scripts folder find it on their own. Elsewhere, add it with:</div>
-            <code className="block">{cmd("•••")}</code>
-            <div>
-              <button
-                type="button"
-                className="link"
-                onClick={() => {
-                  navigator.clipboard?.writeText(cmd(api.token)).then(() => setCopied(true));
-                }}
-              >
-                {copied ? "Copied" : "Copy command"}
-              </button>
-            </div>
-          </div>
-        </details>
+        <AiConnect api={api} mcpUrl={state.mcpUrl} />
 
         {err && (
           <div className="msg bad" role="alert">

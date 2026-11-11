@@ -71,6 +71,10 @@ export function serve(engine: Engine) {
           case "/api/state":
             await engine.scanning;
             return json(req, engine.state());
+          case "/api/ai":
+            return json(req, engine.aiClients());
+          case "/api/ai/connect":
+            return json(req, engine.connectAiClient(body.id));
           case "/api/busy":
             return json(req, engine.busy());
           case "/api/rescan":
@@ -103,10 +107,9 @@ export function serve(engine: Engine) {
           case "/api/project":
             return json(req, { id: await engine.newProject(body.name) });
           case "/api/script":
-            return json(req, { id: await engine.newScript(body.project, body.file, body.description ?? "", body.harness) });
+            return json(req, await engine.newScript(body.project, body.file, body.description ?? "", body.harness));
           case "/api/edit-with":
-            engine.editWith(body.script, body.harness, body.instructions ?? "");
-            return json(req, { ok: true });
+            return json(req, { run: engine.editWith(body.script, body.harness, body.instructions ?? "") });
           case "/api/open":
             engine.open(body.script);
             return json(req, { ok: true });

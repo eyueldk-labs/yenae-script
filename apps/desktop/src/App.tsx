@@ -463,7 +463,10 @@ export function App() {
           onSubmit={(h, what) => {
             const id = editWith;
             setEditWith(null);
-            api.editWith(id, h.id, what).catch((e) => setError(e.message));
+            api
+              .editWith(id, h.id, what)
+              .then(() => open(id))
+              .catch((e) => setError(e.message));
           }}
         />
       )}

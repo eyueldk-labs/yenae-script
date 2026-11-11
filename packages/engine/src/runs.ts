@@ -4,6 +4,7 @@ import type { RunEvent, RunSource, RunSummary, Store } from "./db";
 import type { ScriptInfo, Project } from "./scan";
 import type { ToEngine } from "./protocol";
 import { ensureInstalled } from "./install";
+import { flushText, type Agent, type ParseState } from "./agents";
 
 export interface LiveRun extends RunSummary {
   events: RunEvent[];
@@ -42,9 +43,79 @@ export class Runs {
     return rest as RunSummary & { pendingAsk: LiveRun["pendingAsk"] };
   }
 
+  /** A script run is going (an agent working on the script doesn't count). */
   isRunning(script: string) {
-    for (const r of this.live.values()) if (r.script === script) return true;
+    for (const r of this.live.values()) if (r.script === script && r.source !== "agent") return true;
     return false;
+  }
+
+  /**
+   * A coding agent writing or changing a script, shown like a run of it: its steps and
+   * messages stream as the run's output, Stop ends it, and it lands in the script's history.
+   */
+  startAgent(scriptId: string, agent: Agent, argv: string[], cwd: string, stdin: string | undefined, task: string): LiveRun {
+    const id = crypto.randomUUID();
+    const run: LiveRun & { textSize: number; proc?: Subprocess; stopping?: boolean } = {
+      id,
+      script: scriptId,
+      params: { task, agent: agent.short },
+      source: "agent",
+      status: "running",
+      exitCode: null,
+      error: null,
+      startedAt: Date.now(),
+      endedAt: null,
+      events: [],
+      pendingAsk: null,
+      textSize: 0,
+    };
+    this.live.set(id, run);
+    this.store.insertRun(run);
+    this.emit({ type: "run", run: this.summary(run) });
+    this.push(run, { t: "sys", text: `${agent.short} is working on it…`, at: Date.now() });
+
+    const st: ParseState = {};
+    let errTail = "";
+    (async () => {
+      const proc = Bun.spawn(argv, {
+        cwd,
+        stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
+        stdout: "pipe",
+        stderr: "pipe",
+        windowsHide: true,
+        env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", PWD: cwd },
+      } as any);
+      run.proc = proc;
+      const lines = async (stream: ReadableStream<Uint8Array>, each: (l: string) => void) => {
+        const dec = new TextDecoder();
+        let buf = "";
+        for await (const chunk of stream as any) {
+          buf += dec.decode(chunk, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            each(buf.slice(0, i));
+            buf = buf.slice(i + 1);
+          }
+        }
+        if (buf) each(buf);
+      };
+      await Promise.all([
+        lines(proc.stdout as any, (l) => {
+          for (const e of agent.parse(l, st)) this.push(run, e);
+        }),
+        lines(proc.stderr as any, (l) => (errTail = (errTail + l + "\n").slice(-2000))),
+      ]);
+      const code = await proc.exited;
+      for (const e of flushText(st)) this.push(run, e);
+      const ok = code === 0 && (st.result?.ok ?? true);
+      if (!ok && !run.stopping) {
+        const why = (st.result && !st.result.ok && st.result.text) || errTail.trim().split("\n").slice(-3).join("\n") || `${agent.short} stopped with an error.`;
+        run.error = why;
+        this.push(run, { t: "err", text: why + "\n", at: Date.now() });
+      }
+      this.finish(run, ok ? 0 : code || 1, null);
+    })().catch((e) => this.finish(run, null, e?.message ?? String(e)));
+    return run;
   }
 
   get(id: string) {

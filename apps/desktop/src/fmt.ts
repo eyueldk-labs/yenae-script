@@ -61,7 +61,10 @@ export function lastLabel(r: RunSummary) {
   return `${STATUS[r.status]} ${fmtAgo(r.endedAt ?? r.startedAt)}`;
 }
 
-export const SOURCE: Record<RunSummary["source"], string> = { manual: "", schedule: "scheduled", mcp: "run by an assistant" };
+export const SOURCE: Record<RunSummary["source"], string> = { manual: "", schedule: "scheduled", mcp: "run by an assistant", agent: "" };
+
+/** An AI agent at work on a script ("Claude"), or null for an ordinary run. */
+export const agentOf = (r: Pick<RunSummary, "source" | "params">) => (r.source === "agent" ? String(r.params.agent ?? "AI") : null);
 
 /** "10m" -> "10 minutes", "1d" -> "day", for "every …". */
 export function fmtEvery(every: string) {

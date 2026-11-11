@@ -2,7 +2,8 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 
 export type RunStatus = "running" | "waiting" | "ok" | "failed" | "stopped";
-export type RunSource = "manual" | "schedule" | "mcp";
+/** "agent": a coding agent writing or changing the script (see agents.ts). */
+export type RunSource = "manual" | "schedule" | "mcp" | "agent";
 
 export type RunEvent =
   | { t: "out" | "err"; text: string; at: number }
@@ -91,8 +92,9 @@ export class Store {
   lastRuns(): RunSummary[] {
     const rows = this.db
       .query(
-        `SELECT r.* FROM runs r JOIN (SELECT script, MAX(started_at) AS m FROM runs GROUP BY script) x
-         ON r.script = x.script AND r.started_at = x.m`,
+        // An agent changing a script isn't a run of it: it doesn't count as the last run.
+        `SELECT r.* FROM runs r JOIN (SELECT script, MAX(started_at) AS m FROM runs WHERE source != 'agent' GROUP BY script) x
+         ON r.script = x.script AND r.started_at = x.m AND r.source != 'agent'`,
       )
       .all();
     return (rows as any[]).map(toSummary);
