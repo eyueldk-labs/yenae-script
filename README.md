@@ -70,7 +70,7 @@ Hotkey: `Ctrl+Shift+Space` (`Cmd+Shift+Space` on macOS) shows or hides the windo
 
 ## Install, update, uninstall
 
-**[Download for Windows](https://github.com/eyueldk-labs/yenae-script/releases/latest/download/Yenae-Script-Setup.exe)** (or the [download page](https://eyueldk-labs.github.io/yenae-script/); Linux: [AppImage](https://github.com/eyueldk-labs/yenae-script/releases/latest/download/Yenae-Script.AppImage), [.deb](https://github.com/eyueldk-labs/yenae-script/releases/latest/download/yenae-script.deb)). The setup is one click and opens the app. Updates download by themselves and apply when nothing is running; most are a small bundle that installs in seconds. Uninstall from Windows Settings → Apps. See [docs/release.md](docs/release.md) for making releases.
+**[Download for Windows](https://github.com/eyueldk-labs/yenae-script/releases/latest/download/Yenae-Script-Setup.exe)** (or the [download page](https://eyueldk-labs.github.io/yenae-script/); Linux: [AppImage](https://github.com/eyueldk-labs/yenae-script/releases/latest/download/Yenae-Script.AppImage), [.deb](https://github.com/eyueldk-labs/yenae-script/releases/latest/download/yenae-script.deb)). The setup asks you to press Install, then offers to open the app. Updates download by themselves and apply when nothing is running; most are a small bundle that installs in seconds. Uninstall from Windows Settings → Apps. See [docs/release.md](docs/release.md) for making releases.
 
 ## Status
 

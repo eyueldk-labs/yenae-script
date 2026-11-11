@@ -43,9 +43,9 @@ The download page (`site/`) is published to GitHub Pages by `.github/workflows/p
 
 ## Install and uninstall
 
-- **Windows:** the setup is one click: it installs for the current user, adds Start menu and desktop shortcuts, and opens the app. A new scripts folder starts with two example scripts. Uninstall from Settings → Apps → Installed apps → Yenae Script; the uninstaller stops the app and its bundled Bun, removes "Start with Windows", and offers to delete app data (history, settings). Your scripts folder is never touched.
+- **Windows:** the setup is short and deliberate: one page says what Yenae Script is and what installing does, with an **Install** button (no folder or other choices; it installs for the current user and adds Start menu and desktop shortcuts); it ends on a page with a ticked **Open Yenae Script** and **Finish**. A new scripts folder starts with two example scripts. Uninstall from Settings → Apps → Installed apps → Yenae Script; the uninstaller stops the app and its bundled Bun, removes "Start with Windows", and offers to delete app data (history, settings). Your scripts folder is never touched.
 - **Linux:** `sudo apt remove yenae-script` for the `.deb`; delete the file for the `.AppImage`.
-- The installer is a copy of Tauri's NSIS template with the welcome, folder and finish pages removed (`apps/desktop/src-tauri/windows/installer.nsi`). Refresh it from Tauri when upgrading `@tauri-apps/cli`.
+- The installer is a copy of Tauri's NSIS template with the folder page removed and the welcome and finish pages rewritten (`apps/desktop/src-tauri/windows/installer.nsi`). Refresh it from Tauri when upgrading `@tauri-apps/cli`.
 
 ## What's verified
 
@@ -55,7 +55,7 @@ The download page (`site/`) is published to GitHub Pages by `.github/workflows/p
 - Small updates: tested end to end in a Linux debug build on a virtual display (applies by itself while hidden, "Restart to update" while open, rollback from a broken bundle, interface served from the bundle).
 - Windows: v0.1.0 built and installed; engine tests pass on Windows CI.
 - **Not verified yet on Windows** (check by hand):
-  - the one-click installer opens the app when done
+  - the installer's Install button and "Open Yenae Script" on the last page
   - a full update installs quietly and reopens the app
   - uninstall removes "Start with Windows" and stops the bundled Bun
   - the bundled `bun.exe` starts and the window shows scripts
