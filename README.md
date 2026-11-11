@@ -38,8 +38,8 @@ A file without `defineScript` runs top to bottom with no form. Favourites, folde
 
 ## Agents
 
-- **MCP:** the app serves MCP at `http://127.0.0.1:47321/mcp` (token in `.mcp.json`). Tools: `guide`, `list_scripts`, `read_file`, `write_file`, `create_project`, `run_script`, `answer_question`, `get_run`, `stop_run`, `list_runs`, `set_schedule`.
-- **Harnesses:** "Write with Claude Code" (or Codex, Gemini CLI, OpenCode, whichever is on PATH) opens it in a terminal in your scripts folder with the task. Yenae Script has no agent of its own.
+- **MCP:** the app serves MCP at `http://127.0.0.1:47321/mcp` (token in `.mcp.json`). Settings → **Use with your AI apps** connects Claude Code, Claude Desktop, Codex, Gemini CLI, Cursor, VS Code (Copilot) and OpenCode in one click, or shows the steps (`packages/engine/src/ai-clients.ts`). Claude Desktop goes through `.yenae/mcp-bridge.js`, run by the bundled Bun. Tools: `guide`, `list_scripts`, `read_file`, `write_file`, `create_project`, `run_script`, `answer_question`, `get_run`, `stop_run`, `list_runs`, `set_schedule`.
+- **Agents:** New script, "Change what it does…" and "Ask Claude to fix it" run the person's own coding agent (Claude Code, Codex, Gemini CLI or OpenCode, whichever is installed) headless in the scripts folder: no terminal window. Its steps and summary stream into the script's panel as a run, Stop ends it, and History keeps it (`packages/engine/src/agents.ts`). Yenae Script has no agent of its own.
 
 ## Layout
 
