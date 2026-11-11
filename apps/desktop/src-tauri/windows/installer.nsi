@@ -257,6 +257,13 @@ Function PageReinstall
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
 
+  ; Yenae Script: the same or a newer version just installs over the old one, with no page
+  ; (exactly what updates do). Only going back to an older version asks what to do.
+  ${If} $WixMode = 0
+  ${AndIf} $R0 >= 0
+    Abort
+  ${EndIf}
+
   ; Read the install choice header through $R5 so a custom language file that only
   ; defines the misspelled `choowHowToInstall` still shows its own text
   ; TODO: remove the `choowHowToInstall` fallback in a future major version
