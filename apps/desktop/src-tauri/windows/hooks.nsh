@@ -22,3 +22,9 @@
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Yenae Script"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "yenae-script"
 !macroend
+
+; After installing or updating, tell Windows its icons changed, so pinned taskbar buttons
+; and shortcuts show the current icon instead of a cached old one.
+!macro NSIS_HOOK_POSTINSTALL
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+!macroend

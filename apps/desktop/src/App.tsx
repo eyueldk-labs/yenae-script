@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Plus, Search, Settings, X } from "lucide-react";
-import { Api, connect, isTauri, type Layout, type RunDetail, type RunEvent, type State } from "./api";
+import { Api, EngineError, connect, isTauri, type EngineStatus, type Layout, type RunDetail, type RunEvent, type State } from "./api";
 import { defaults, missing } from "./Form";
 import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
 import { Home, attentionOf } from "./Home";
@@ -28,11 +28,14 @@ export function App() {
   const [tick, setTick] = useState(0);
   const search = useRef<HTMLInputElement>(null);
 
+  // Set when the background engine couldn't start: why, its last words, and the log file.
+  const [engineFail, setEngineFail] = useState<EngineStatus | null>(null);
+  const [connectKey, setConnectKey] = useState(0);
   useEffect(() => {
     connect()
       .then((c) => setApi(new Api(c)))
-      .catch((e) => setError(e.message));
-  }, []);
+      .catch((e) => (e instanceof EngineError ? setEngineFail(e.status) : setError(e.message)));
+  }, [connectKey]);
 
   // Relative times ("4 min ago", "next in 6 min") stay true while the window is left open.
   useEffect(() => {
@@ -259,7 +262,38 @@ export function App() {
       </div>
     );
   }
-  if (!state || !api) return <div className="center muted">Loading…</div>;
+  if (engineFail) {
+    return (
+      <div className="center">
+        <p>
+          <b>{engineFail.failed}</b>
+        </p>
+        <p className="muted small">Yenae Script {engineFail.version}</p>
+        <div className="row">
+          <button
+            className="primary"
+            onClick={async () => {
+              setEngineFail(null);
+              const { invoke } = await import("@tauri-apps/api/core");
+              await invoke("restart_engine").catch(() => {});
+              setConnectKey((k) => k + 1);
+            }}
+          >
+            Try again
+          </button>
+          <button onClick={() => navigator.clipboard?.writeText([engineFail.failed, `Version ${engineFail.version}`, ...engineFail.log].join("\n"))}>Copy details</button>
+        </div>
+        {engineFail.log.length > 0 && (
+          <details className="tech engine-log">
+            <summary>Technical details</summary>
+            <pre className="log">{engineFail.log.join("\n")}</pre>
+            <p className="muted small">Full log: {engineFail.logFile}</p>
+          </details>
+        )}
+      </div>
+    );
+  }
+  if (!state || !api) return <div className="center muted">Starting Yenae Script…</div>;
 
   // The script whose panel is open keeps its row (marked as open) so nothing jumps.
   const alerts = attention.needs.filter((n) => !dismissed.has(n.run));

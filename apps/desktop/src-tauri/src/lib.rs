@@ -38,6 +38,122 @@ struct Engine {
     info: Mutex<Option<serde_json::Value>>,
     running: Mutex<Option<Running>>,
     exited: Mutex<Option<Arc<AtomicBool>>>,
+    /// How the last engine process ended (3: its port was taken).
+    exit_code: Mutex<Option<i32>>,
+    /// The engine's last messages, shown if it can't start (also kept in engine.log).
+    log: Mutex<std::collections::VecDeque<String>>,
+    /// Set when the engine couldn't be started after retrying.
+    failed: Mutex<Option<String>>,
+}
+
+/// Where the window waits: starting, ready, or failed (with why and the engine's last words).
+#[tauri::command]
+fn engine_status(app: AppHandle) -> serde_json::Value {
+    let e = app.state::<Engine>();
+    let ready = e.info.lock().unwrap().is_some();
+    let failed = e.failed.lock().unwrap().clone();
+    let log: Vec<String> = e.log.lock().unwrap().iter().cloned().collect();
+    serde_json::json!({
+        "ready": ready,
+        "failed": failed,
+        "log": log,
+        "version": app.package_info().version.to_string(),
+        "logFile": app.path().app_data_dir().map(|d| d.join("engine.log").to_string_lossy().to_string()).unwrap_or_default(),
+    })
+}
+
+/// "Try again" on the window's error: start the engine afresh.
+#[tauri::command]
+async fn restart_engine(app: AppHandle) {
+    stop_engine(&app);
+    start_engine_supervised(app).await;
+}
+
+/// Starts the engine and makes sure it comes up. If it exits because its port is taken
+/// (an engine left over from before an update or a crash), that leftover is stopped and
+/// it tries again; a slow first start (a virus scan of a freshly installed Bun) is waited for.
+pub(crate) async fn start_engine_supervised(app: AppHandle) {
+    let engine = app.state::<Engine>();
+    *engine.failed.lock().unwrap() = None;
+    for attempt in 1..=3 {
+        start_engine(&app);
+        let start = Instant::now();
+        loop {
+            if engine.info.lock().unwrap().is_some() {
+                return;
+            }
+            if engine_exited(&app) || start.elapsed() > Duration::from_secs(90) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let code = *engine.exit_code.lock().unwrap();
+        log_line(&app, &format!("engine didn't start (attempt {attempt}, exit {code:?})"));
+        stop_engine(&app);
+        if code == Some(3) {
+            kill_stale_engines();
+        }
+        tokio::time::sleep(Duration::from_millis(800 * attempt as u64)).await;
+    }
+    let reason = {
+        let log = engine.log.lock().unwrap();
+        if log.iter().any(|l| l.contains("Can't listen on port")) {
+            "Another program is using the address Yenae Script needs (port 47321). Restarting the computer usually frees it.".to_string()
+        } else {
+            "The background engine didn't start.".to_string()
+        }
+    };
+    *engine.failed.lock().unwrap() = Some(reason);
+}
+
+/// Stops engines this app started earlier that are still running (they hold its port).
+fn kill_stale_engines() {
+    let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) else { return };
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let ps = format!(
+            "Get-CimInstance Win32_Process -Filter \"Name='bun.exe'\" | Where-Object {{ $_.ExecutablePath -like '{}\\*' -and $_.CommandLine -like '*main.js*--data*' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
+            dir.display()
+        );
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+            .creation_flags(0x08000000) // no console window
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("pkill").args(["-f", &format!("{}/bun .*main.js.*--data", dir.display())]).status();
+    }
+    std::thread::sleep(Duration::from_millis(500));
+}
+
+/// Keeps the engine's last lines in memory and appends them to engine.log in the app's data folder.
+fn log_line(app: &AppHandle, line: &str) {
+    let e = app.state::<Engine>();
+    {
+        let mut log = e.log.lock().unwrap();
+        log.push_back(line.to_string());
+        while log.len() > 40 {
+            log.pop_front();
+        }
+    }
+    if let Ok(dir) = app.path().app_data_dir() {
+        use std::io::Write;
+        let path = dir.join("engine.log");
+        // Keep the file small: start over past 1 MB.
+        if std::fs::metadata(&path).map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            let _ = std::fs::remove_file(&path);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = writeln!(f, "{} {line}", chrono_now());
+        }
+    }
+}
+
+/// Seconds since 1970, enough to order the log lines.
+fn chrono_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 pub(crate) fn engine_info_value(app: &AppHandle) -> Option<serde_json::Value> {
@@ -144,6 +260,7 @@ fn try_start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let engine = app.state::<Engine>();
     *engine.info.lock().unwrap() = None;
     *engine.exited.lock().unwrap() = Some(exited.clone());
+    *engine.exit_code.lock().unwrap() = None;
     *engine.running.lock().unwrap() = Some(Running { pid: child.pid(), child, exited: exited.clone() });
 
     let handle = app.clone();
@@ -158,9 +275,15 @@ fn try_start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
-                CommandEvent::Stderr(line) => eprintln!("engine: {}", String::from_utf8_lossy(&line).trim_end()),
+                CommandEvent::Stderr(line) => {
+                    let l = String::from_utf8_lossy(&line).trim_end().to_string();
+                    eprintln!("engine: {l}");
+                    log_line(&handle, &l);
+                }
                 CommandEvent::Terminated(p) => {
                     eprintln!("engine exited: {:?}", p.code);
+                    *handle.state::<Engine>().exit_code.lock().unwrap() = p.code;
+                    log_line(&handle, &format!("engine exited ({:?})", p.code));
                     exited.store(true, Ordering::SeqCst);
                 }
                 _ => {}
@@ -226,6 +349,8 @@ pub fn run() {
         .manage(Engine::default())
         .invoke_handler(tauri::generate_handler![
             engine_info,
+            engine_status,
+            restart_engine,
             set_attention,
             update_status,
             check_updates,
@@ -239,7 +364,7 @@ pub fn run() {
             // Choose the version to run before anything loads.
             app.manage(Updates::new(&handle, ui_dir.clone()));
 
-            start_engine(&handle);
+            tauri::async_runtime::spawn(start_engine_supervised(handle.clone()));
 
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Yenae Script")

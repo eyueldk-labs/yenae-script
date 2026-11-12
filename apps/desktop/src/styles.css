@@ -559,3 +559,6 @@ code.block { display: block; padding: 6px 8px; background: var(--code); border-r
 .code-box { display: flex; align-items: flex-start; gap: 8px; padding: 8px 8px 8px 10px; border-radius: var(--radius); background: var(--code); }
 .code-box code { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-box .small-btn { flex: none; }
+
+/* The engine-didn't-start screen: its log stays readable and inside the window. */
+.engine-log { max-width: min(640px, 100%); text-align: left; }

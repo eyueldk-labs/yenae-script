@@ -117,12 +117,15 @@ export interface Conn {
 export async function connect(): Promise<Conn> {
   if (isTauri()) {
     const { invoke } = await import("@tauri-apps/api/core");
-    for (let i = 0; i < 100; i++) {
+    // The shell starts (and if needed restarts) the engine; a first start after an install
+    // can take a while (a virus scan of the new files). Wait until it's up or says it failed.
+    for (;;) {
       const info = await invoke<{ port: number; token: string } | null>("engine_info");
       if (info) return { base: `http://127.0.0.1:${info.port}`, token: info.token };
-      await new Promise((r) => setTimeout(r, 100));
+      const st = await invoke<EngineStatus>("engine_status").catch(() => null);
+      if (st?.failed) throw new EngineError(st);
+      await new Promise((r) => setTimeout(r, 250));
     }
-    throw new Error("The background engine didn't start. Quit Yenae Script from the tray and open it again.");
   }
   const q = new URLSearchParams(location.search);
   const token = q.get("token") ?? localStorage.getItem("yenae.token") ?? "";
@@ -132,6 +135,15 @@ export async function connect(): Promise<Conn> {
     localStorage.setItem("yenae.engine", base);
   } catch {}
   return { base, token };
+}
+
+export type EngineStatus = { ready: boolean; failed: string | null; log: string[]; version: string; logFile: string };
+
+/** The engine couldn't be started; carries what it said, for the error screen. */
+export class EngineError extends Error {
+  constructor(public status: EngineStatus) {
+    super(status.failed ?? "The background engine didn't start.");
+  }
 }
 
 export class Api {
