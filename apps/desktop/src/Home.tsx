@@ -7,7 +7,7 @@ import { Menu, type MenuEntry } from "./Menu";
 import { NewFolderDialog } from "./Dialogs";
 import { defaults, fmtValue, labelOf, splitUnit, startValues } from "./Form";
 import { fmtAgo, fmtEvery, fmtEveryShort, lastLabel, isLive } from "./fmt";
-import { folderOf, folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, type Target } from "./layoutOps";
+import { folderOf, folderWith, foldersOf, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, toggleInFolder, ungroup, type Target } from "./layoutOps";
 
 type Folder = Extract<LayoutItem, { type: "folder" }>;
 type Badge = { kind: "failed" | "waiting" | "running" | "error"; text: string } | null;
@@ -56,7 +56,7 @@ export function Home({
   const [openFolder, setOpenFolder] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; folder?: boolean } | null>(null);
-  const drag = useRef<{ id: string; folder: boolean; fav: boolean } | null>(null);
+  const drag = useRef<{ id: string; folder: boolean; fav: boolean; from?: string } | null>(null);
   const [drop, setDrop] = useState<{ ref: string; kind: string } | null>(null);
 
   // A folder that no longer exists can't stay open.
@@ -69,7 +69,7 @@ export function Home({
     const r = state.lastRuns[id];
     return r ? (runs[r.id] ?? r) : null;
   };
-  const folderName = (id: string) => folderOf(layout, id)?.name;
+  const folderName = (id: string) => foldersOf(layout, id).map((f) => f.name).join(", ") || undefined;
 
   // ---- search: every script, flat, folders included ----
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -89,7 +89,7 @@ export function Home({
     if (inFav || drag.current?.folder) return x < 0.5 ? "before" : "after";
     return x < 0.28 ? "before" : x > 0.72 ? "after" : "into";
   };
-  const onTileDrop = (ref: string, refIsFolder: boolean, inFav: boolean, kind: string) => {
+  const onTileDrop = (ref: string, refIsFolder: boolean, inFav: boolean, kind: string, refIn?: string) => {
     const d = drag.current;
     drag.current = null;
     setDrop(null);
@@ -105,7 +105,7 @@ export function Home({
       onLayout(moveFolder(layout, d.id, kind as "before" | "after", ref));
       return;
     }
-    const { layout: next, created } = moveScript(layout, d.id, { kind: kind as Target["kind"], ref } as Target);
+    const { layout: next, created } = moveScript(layout, d.id, { kind, ref, in: refIn === "results" ? undefined : refIn } as Target, d.from);
     onLayout(next);
     if (created) {
       setOpenFolder(created);
@@ -125,7 +125,7 @@ export function Home({
       e.preventDefault();
       if (container === "fav") {
         if (!d.folder) onLayout(moveFavourite(layout.favourites.includes(d.id) ? layout : toggleFavourite(layout, d.id), d.id, null));
-      } else if (!d.folder && !d.fav) onLayout(moveScript(layout, d.id, { kind: "end", container: container === "items" ? "items" : container }).layout);
+      } else if (!d.folder && !d.fav) onLayout(moveScript(layout, d.id, { kind: "end", container: container === "items" ? "items" : container }, d.from).layout);
     },
   });
 
@@ -133,16 +133,15 @@ export function Home({
   const scriptMenu = (id: string): MenuEntry[] => {
     const s = byId.get(id)!;
     const fav = layout.favourites.includes(id);
-    const home = folderOf(layout, id);
-    const folders = layout.items.filter((i): i is Folder => i.type === "folder" && i.id !== home?.id);
+    const folders = layout.items.filter((i): i is Folder => i.type === "folder");
     return [
       { label: "Open", onSelect: () => onOpen(id, true) },
       { label: state.lastRuns[id] ? "Run again" : "Run", hint: Object.keys(s.params).length ? "same values" : "", onSelect: () => onRun(id), disabled: !!s.error },
       { label: fav ? "Remove from favourites" : "Add to favourites", onSelect: () => onLayout(toggleFavourite(layout, id)) },
       { label: "Edit…", onSelect: () => onEdit(id) },
       "separator",
-      { heading: "Move to folder" },
-      ...folders.map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, id, f.id)) })),
+      { heading: "In folders" },
+      ...folders.map((f) => ({ label: f.name, checked: f.scripts.includes(id), onSelect: () => onLayout(toggleInFolder(layout, id, f.id)) })),
       {
         label: "New folder…",
         onSelect: () => {
@@ -152,7 +151,6 @@ export function Home({
           setRenaming(created);
         },
       },
-      ...(home ? [{ label: `Move out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, id, null)) }] : []),
       "separator",
       { heading: "For developers" },
       { label: "Open file", onSelect: () => api.open(id).catch(() => {}) },
@@ -194,7 +192,7 @@ export function Home({
           setMenu({ x: e.clientX, y: e.clientY, id });
         }}
         onDragStart={(e) => {
-          drag.current = { id, folder: false, fav: inFav };
+          drag.current = { id, folder: false, fav: inFav, from: where === "results" ? undefined : where };
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", s.name);
         }}
@@ -212,7 +210,7 @@ export function Home({
         onDragLeave={() => drop?.ref === id && setDrop(null)}
         onDrop={(e) => {
           e.preventDefault();
-          onTileDrop(id, false, inFav, zone(e, inFav));
+          onTileDrop(id, false, inFav, zone(e, inFav), where);
         }}
       >
         <button
@@ -368,11 +366,11 @@ export function Home({
       if (!ref) return;
       next = moveFavourite(layout, id, ref, d < 0 ? "before" : "after");
     } else {
-      const f = folderOf(layout, id);
+      const f = layout.items.find((i) => i.type === "folder" && i.id === where) as Folder | undefined;
       const list = f ? f.scripts : layout.items.map((i) => i.id);
       const ref = list[list.indexOf(id) + d];
       if (!ref) return;
-      next = moveScript(layout, id, { kind: d < 0 ? "before" : "after", ref } as Target).layout;
+      next = moveScript(layout, id, { kind: d < 0 ? "before" : "after", ref, in: f ? f.id : "items" } as Target, f ? f.id : "items").layout;
     }
     onLayout(next);
     refocus(id, where);
@@ -516,7 +514,8 @@ export function Home({
                     if (!d || d.folder) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    onLayout(moveToFolder(layout, d.id, null));
+                    // Out of this folder (it stays in any others).
+                    onLayout(layout.items.some((i) => i.id === openF.id && i.type === "folder" && i.scripts.includes(d.id)) ? toggleInFolder(layout, d.id, openF.id) : layout);
                   }}
                 >
                   <ChevronLeft size={18} aria-hidden />

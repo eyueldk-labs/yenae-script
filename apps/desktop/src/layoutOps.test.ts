@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Layout } from "./api";
-import { folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup } from "./layoutOps";
+import { folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, foldersOf, toggleInFolder } from "./layoutOps";
 
 const base: Layout = {
   favourites: [],
@@ -44,4 +44,21 @@ test("favourites toggle and reorder", () => {
   l = moveFavourite(l, "c", "a");
   expect(l.favourites).toEqual(["c", "a"]);
   expect(toggleFavourite(l, "c").favourites).toEqual(["a"]);
+});
+
+test("a script can be added to a second folder and taken out of one", () => {
+  const base = { favourites: [], items: [{ type: "folder" as const, id: "f1", name: "Work", scripts: ["a.ts"] }, { type: "folder" as const, id: "f2", name: "Daily", scripts: ["b.ts"] }] };
+  const both = toggleInFolder(base, "a.ts", "f2");
+  expect(foldersOf(both, "a.ts").map((f) => f.id)).toEqual(["f1", "f2"]);
+  const out = toggleInFolder(both, "a.ts", "f1");
+  expect(foldersOf(out, "a.ts").map((f) => f.id)).toEqual(["f2"]);
+  const none = toggleInFolder(out, "a.ts", "f2");
+  expect(none.items.some((i) => i.type === "script" && i.id === "a.ts")).toBe(true);
+});
+
+test("dragging out of one folder leaves it in the others", () => {
+  const base = { favourites: [], items: [{ type: "folder" as const, id: "f1", name: "Work", scripts: ["a.ts", "c.ts"] }, { type: "folder" as const, id: "f2", name: "Daily", scripts: ["a.ts", "b.ts"] }] };
+  const { layout } = moveScript(base, "a.ts", { kind: "after", ref: "b.ts", in: "f2" }, "f1");
+  expect(foldersOf(layout, "a.ts").map((f) => f.id)).toEqual(["f2"]);
+  expect((layout.items[1] as any).scripts).toEqual(["b.ts", "a.ts"]);
 });

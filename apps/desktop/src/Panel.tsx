@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Ellipsis, Pencil, Star, X } from "lucide-react";
 import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
-import { folderOf, folderWith, moveToFolder } from "./layoutOps";
+import { folderWith, toggleInFolder } from "./layoutOps";
 import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, splitUnit, startValues } from "./Form";
 import { RunOutput, friendlyError, plainError } from "./Output";
 import { modalOpen, preferredHarness } from "./Dialogs";
@@ -198,15 +198,13 @@ export function Panel({
     onEdit("ask", `This run failed${r.exitCode ? ` with exit code ${r.exitCode}` : ""}.\n${err || r.error || ""}\n\nFind the cause and fix it.`);
   };
 
-  const home = folderOf(layout, script.id);
   const menuItems: MenuEntry[] = [
     { label: "Edit…", onSelect: () => onEdit() },
     "separator",
-    { heading: "Move to folder" },
+    { heading: "In folders" },
     ...layout.items
-      .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder" && i.id !== home?.id)
-      .map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, script.id, f.id)) })),
-    ...(home ? [{ label: `Move out of ${home.name}`, onSelect: () => onLayout(moveToFolder(layout, script.id, null)) }] : []),
+      .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder")
+      .map((f) => ({ label: f.name, checked: f.scripts.includes(script.id), onSelect: () => onLayout(toggleInFolder(layout, script.id, f.id)) })),
     { label: "New folder…", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
     "separator",
     { heading: "For developers" },

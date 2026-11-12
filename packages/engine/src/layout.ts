@@ -18,21 +18,26 @@ export const EMPTY_LAYOUT: Layout = { favourites: [], items: [] };
  */
 export function normalizeLayout(raw: unknown, scriptIds: string[]): Layout {
   const known = new Set(scriptIds);
-  const seen = new Set<string>();
-  const take = (id: unknown) => {
-    if (typeof id !== "string" || !known.has(id) || seen.has(id)) return null;
-    seen.add(id);
-    return id;
-  };
   const src = (raw && typeof raw === "object" ? raw : {}) as Partial<Layout>;
+  const rawItems = Array.isArray(src.items) ? src.items : [];
+  // A script can be in several folders (once in each). One that's in a folder isn't also
+  // listed on its own at the top.
+  const inFolder = new Set<string>();
+  for (const it of rawItems)
+    if (it?.type === "folder" && Array.isArray(it.scripts)) for (const id of it.scripts) if (typeof id === "string" && known.has(id)) inFolder.add(id);
+  const seen = new Set<string>(inFolder);
+  const topSeen = new Set<string>();
   const items: LayoutItem[] = [];
   const folderIds = new Set<string>();
-  for (const it of Array.isArray(src.items) ? src.items : []) {
+  for (const it of rawItems) {
     if (it?.type === "script") {
-      const id = take(it.id);
-      if (id) items.push({ type: "script", id });
+      const id = it.id;
+      if (typeof id !== "string" || !known.has(id) || inFolder.has(id) || topSeen.has(id)) continue;
+      topSeen.add(id);
+      seen.add(id);
+      items.push({ type: "script", id });
     } else if (it?.type === "folder") {
-      const scripts = (Array.isArray(it.scripts) ? it.scripts : []).map(take).filter((x): x is string => !!x);
+      const scripts = [...new Set((Array.isArray(it.scripts) ? it.scripts : []).filter((id): id is string => typeof id === "string" && known.has(id)))];
       let id = typeof it.id === "string" && it.id ? it.id : `f${items.length}`;
       while (folderIds.has(id)) id += "_";
       folderIds.add(id);

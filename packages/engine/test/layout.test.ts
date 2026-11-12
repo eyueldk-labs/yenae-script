@@ -31,3 +31,23 @@ test("garbage input gives the default order", () => {
   expect(normalizeLayout("nope", ids).items.length).toBe(4);
   expect(normalizeLayout({ items: [null, { type: "folder" }] }, ids).items.length).toBe(4);
 });
+
+test("a script can be in several folders, and isn't also listed on its own", () => {
+  const ids = ["a.ts", "b.ts", "c.ts"];
+  const l = normalizeLayout(
+    {
+      favourites: [],
+      items: [
+        { type: "script", id: "a.ts" },
+        { type: "folder", id: "f1", name: "Work", scripts: ["a.ts", "b.ts", "a.ts"] },
+        { type: "folder", id: "f2", name: "Daily", scripts: ["a.ts"] },
+      ],
+    },
+    ids,
+  );
+  expect(l.items).toEqual([
+    { type: "folder", id: "f1", name: "Work", scripts: ["a.ts", "b.ts"] },
+    { type: "folder", id: "f2", name: "Daily", scripts: ["a.ts"] },
+    { type: "script", id: "c.ts" },
+  ]);
+});
