@@ -352,7 +352,7 @@ export function EditScriptDialog({
 
   return (
     <Dialog title={`Edit ${script.name}`} onClose={close} wide={tab === "code"}>
-      <div className="seg" role="tablist" aria-label="How to edit">
+      <div className="tabs dialog-tabs" role="tablist" aria-label="How to edit">
         <button type="button" role="tab" aria-selected={tab === "ask"} className={tab === "ask" ? "on" : ""} onClick={() => setTab("ask")}>
           Describe a change
         </button>
@@ -394,7 +394,7 @@ export function EditScriptDialog({
                 </select>
               </div>
             )}
-            <div className="hint">{agent.short} makes the change in the background; you can watch it in the script's panel.</div>
+            <div className="hint">{agent.short} makes the change; you can watch it work in the panel.</div>
             {msg && <div className={`msg ${msg.bad ? "bad" : "note"}`}>{msg.text}</div>}
             <div className="row wrap end dialog-actions">
               <button type="button" className="ghost" onClick={close}>

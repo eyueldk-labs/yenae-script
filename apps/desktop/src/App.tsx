@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { Plus, Search, Settings, X } from "lucide-react";
 import { Api, EngineError, connect, isTauri, type EngineStatus, type Layout, type RunDetail, type RunEvent, type State } from "./api";
 import { defaults, missing } from "./Form";
-import { EditWithDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
+import { ConfirmDeleteDialog, EditScriptDialog, NewScriptDialog, SettingsDialog, modalOpen } from "./Dialogs";
 import { Home, attentionOf } from "./Home";
 import { Panel, type Opening } from "./Panel";
 import { isLive } from "./fmt";
@@ -22,7 +22,15 @@ export function App() {
   const [opening, setOpening] = useState<Opening>({ key: 0 });
   const [wide, setWide] = useState(false);
   const [dialog, setDialog] = useState<null | "new" | "settings">(null);
-  const [editWith, setEditWith] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: string; tab?: "ask" | "code"; text?: string } | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  // After deleting: "Deleted X · Undo", until dismissed or replaced.
+  const [undo, setUndo] = useState<{ trash: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!undo) return;
+    const t = setTimeout(() => setUndo(null), 12_000);
+    return () => clearTimeout(t);
+  }, [undo]);
   const [query, setQuery] = useState("");
   const [announce, setAnnounce] = useState("");
   const [tick, setTick] = useState(0);
@@ -457,7 +465,8 @@ export function App() {
             selected={selected}
             onOpen={(id, focus) => open(id, { focus })}
             onRun={quickRun}
-            onEditWith={(id) => setEditWith(id)}
+            onEdit={(id) => setEditing({ id })}
+            onDelete={(id) => setDeleting(id)}
             query={query}
             onClearSearch={() => {
               setQuery("");
@@ -483,24 +492,80 @@ export function App() {
           onFavourite={() => saveLayout(toggleFavourite(state.layout, script.id))}
           onWide={() => setWide((w) => !w)}
           onClose={close}
+          onEdit={(tab, text) => setEditing({ id: script.id, tab, text })}
+          onDelete={() => setDeleting(script.id)}
         />
       )}
 
+      {(undo || error) && (
+        <div className="toasts">
+          {undo && (
+            <div className="update-bar note-bar" role="status">
+              <span className="grow">Deleted {undo.name}</span>
+              <button
+                onClick={async () => {
+                  const u = undo;
+                  setUndo(null);
+                  try {
+                    await api.restoreScript(u.trash);
+                    refresh();
+                  } catch (e: any) {
+                    setError(e.message);
+                  }
+                }}
+              >
+                Undo
+              </button>
+              <button className="ib" aria-label="Dismiss" title="Dismiss" onClick={() => setUndo(null)}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
+          {error && (
+            <div className="update-bar bad" role="alert">
+              <span className="grow">{error}</span>
+              <button className="ib" aria-label="Dismiss" title="Dismiss" onClick={() => setError(null)}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="sr-only" aria-live="polite">
         {announce}
       </div>
-      {editWith && (
-        <EditWithDialog
-          title={`Edit ${state.scripts.find((s) => s.id === editWith)?.name ?? "script"}`}
+      {editing && (
+        <EditScriptDialog
+          api={api}
+          script={{ id: editing.id, name: state.scripts.find((s) => s.id === editing.id)?.name ?? "script" }}
           harnesses={state.harnesses}
-          onClose={() => setEditWith(null)}
-          onSubmit={(h, what) => {
-            const id = editWith;
-            setEditWith(null);
-            api
-              .editWith(id, h.id, what)
-              .then(() => open(id))
-              .catch((e) => setError(e.message));
+          tab={editing.tab}
+          initial={editing.text}
+          onClose={() => setEditing(null)}
+          onStarted={() => {
+            const id = editing.id;
+            setEditing(null);
+            open(id);
+          }}
+          onSaved={refresh}
+        />
+      )}
+      {deleting && (
+        <ConfirmDeleteDialog
+          name={state.scripts.find((s) => s.id === deleting)?.name ?? "this script"}
+          onClose={() => setDeleting(null)}
+          onDelete={async () => {
+            const id = deleting;
+            const name = state.scripts.find((s) => s.id === id)?.name ?? "Script";
+            setDeleting(null);
+            if (selected === id) close();
+            try {
+              const { trash } = await api.deleteScript(id);
+              setUndo({ trash, name });
+              refresh();
+            } catch (e: any) {
+              setError(e.message);
+            }
           }}
         />
       )}

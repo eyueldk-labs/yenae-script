@@ -34,7 +34,8 @@ export function Home({
   selected,
   onOpen,
   onRun,
-  onEditWith,
+  onEdit,
+  onDelete,
   query,
   onClearSearch,
 }: {
@@ -46,7 +47,8 @@ export function Home({
   selected: string | null;
   onOpen: (id: string, focus: boolean) => void;
   onRun: (id: string) => void;
-  onEditWith: (id: string) => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
   query: string;
   onClearSearch: () => void;
 }) {
@@ -133,12 +135,11 @@ export function Home({
     const fav = layout.favourites.includes(id);
     const home = folderOf(layout, id);
     const folders = layout.items.filter((i): i is Folder => i.type === "folder" && i.id !== home?.id);
-    const agent = preferredHarness(state.harnesses);
     return [
       { label: "Open", onSelect: () => onOpen(id, true) },
       { label: state.lastRuns[id] ? "Run again" : "Run", hint: Object.keys(s.params).length ? "same values" : "", onSelect: () => onRun(id), disabled: !!s.error },
       { label: fav ? "Remove from favourites" : "Add to favourites", onSelect: () => onLayout(toggleFavourite(layout, id)) },
-      ...(agent ? [{ label: "Change what it does…", onSelect: () => onEditWith(id) }] : []),
+      { label: "Edit…", onSelect: () => onEdit(id) },
       "separator",
       { heading: "Move to folder" },
       ...folders.map((f) => ({ label: f.name, onSelect: () => onLayout(moveToFolder(layout, id, f.id)) })),
@@ -155,6 +156,8 @@ export function Home({
       "separator",
       { heading: "For developers" },
       { label: "Open file", onSelect: () => api.open(id).catch(() => {}) },
+      "separator",
+      { label: "Delete…", onSelect: () => onDelete(id) },
     ];
   };
   const folderMenu = (fid: string): MenuEntry[] => [

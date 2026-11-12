@@ -562,3 +562,32 @@ code.block { display: block; padding: 6px 8px; background: var(--code); border-r
 
 /* The engine-didn't-start screen: its log stays readable and inside the window. */
 .engine-log { max-width: min(640px, 100%); text-align: left; }
+
+/* Edit window: tabs, and a wider window for the code editor. */
+.dialog.wide { max-width: 860px; }
+.dialog-tabs { display: flex; gap: 20px; margin: -4px 0 14px; border-bottom: 1px solid var(--line); }
+.note-bar { border-color: var(--line); background: var(--bg); }
+.code-editor { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--code); }
+.code-editor .cm-editor { height: min(56vh, 520px); font-size: 13px; background: var(--code); color: var(--text); }
+.code-editor .cm-editor.cm-focused { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: -2px; }
+.code-editor .cm-scroller { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; line-height: 1.5; }
+.code-editor .cm-gutters { background: var(--code); color: var(--muted); border-right: 1px solid var(--line); }
+.code-editor .cm-activeLine, .code-editor .cm-activeLineGutter { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.code-editor .cm-cursor { border-left-color: var(--text); }
+.code-editor .cm-selectionBackground, .code-editor .cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--accent) 25%, transparent) !important; }
+.code-editor {
+  --syn-keyword: #7a3e9d; --syn-string: #a3421f; --syn-number: #1c6b8c; --syn-comment: #6b7066;
+  --syn-function: #3b4fb0; --syn-type: #2d7a5f; --syn-property: #1f5f8b;
+}
+@media (prefers-color-scheme: dark) {
+  .code-editor {
+    --syn-keyword: #d0a3f0; --syn-string: #f0b08a; --syn-number: #8fd0ec; --syn-comment: #8e948a;
+    --syn-function: #a8b1f7; --syn-type: #8fd8b6; --syn-property: #9cc9ec;
+  }
+}
+
+/* Short messages (Deleted · Undo, errors) float at the bottom, wherever the list is scrolled. */
+.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 40; display: flex; flex-direction: column; gap: 8px; width: min(480px, calc(100vw - 32px)); }
+.toasts > .update-bar { margin: 0; box-shadow: 0 6px 24px rgb(0 0 0 / 0.18); }
+.toasts > .note-bar { background: var(--bg); }
+.toasts > .update-bar.bad { background: color-mix(in srgb, var(--bad) 8%, var(--bg)); }

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Ellipsis, Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Ellipsis, Pencil, Star, X } from "lucide-react";
 import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
 import { folderOf, folderWith, moveToFolder } from "./layoutOps";
 import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, splitUnit, startValues } from "./Form";
 import { RunOutput, friendlyError, plainError } from "./Output";
-import { EditWithDialog, modalOpen, preferredHarness } from "./Dialogs";
+import { modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
 import { Menu, type MenuEntry } from "./Menu";
 import { Glyph, hueOf } from "./icons";
@@ -34,6 +34,8 @@ export function Panel({
   onFavourite,
   onWide,
   onClose,
+  onEdit,
+  onDelete,
 }: {
   api: Api;
   script: Script;
@@ -48,6 +50,9 @@ export function Panel({
   onFavourite: () => void;
   onWide: () => void;
   onClose: () => void;
+  /** Opens the Edit window: "ask" with a change already described, or "code". */
+  onEdit: (tab?: "ask" | "code", text?: string) => void;
+  onDelete: () => void;
 }) {
   const schedule = state.schedules.find((s) => s.script === script.id) ?? null;
   // The form starts from whichever is newer: what you last typed, or the values of the last run
@@ -72,7 +77,6 @@ export function Panel({
   // A run opened from History shows there, with a way back to the list.
   const [histRun, setHistRun] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg | null>(null);
-  const [editWith, setEditWith] = useState<{ title: string; text: string } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const root = useRef<HTMLElement>(null);
   const runButton = useRef<HTMLButtonElement>(null);
@@ -191,12 +195,13 @@ export function Panel({
       .split("\n")
       .slice(-12)
       .join("\n");
-    setEditWith({ title: "Fix this script", text: `This run failed${r.exitCode ? ` with exit code ${r.exitCode}` : ""}.\n${err || r.error || ""}\n\nFind the cause and fix it.` });
+    onEdit("ask", `This run failed${r.exitCode ? ` with exit code ${r.exitCode}` : ""}.\n${err || r.error || ""}\n\nFind the cause and fix it.`);
   };
 
   const home = folderOf(layout, script.id);
   const menuItems: MenuEntry[] = [
-    ...(agent ? [{ label: "Change what it does…", onSelect: () => setEditWith({ title: "Change this script", text: "" }) }] : []),
+    { label: "Edit…", onSelect: () => onEdit() },
+    "separator",
     { heading: "Move to folder" },
     ...layout.items
       .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder" && i.id !== home?.id)
@@ -206,6 +211,8 @@ export function Panel({
     "separator",
     { heading: "For developers" },
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
+    "separator",
+    { label: "Delete…", onSelect: onDelete },
   ];
 
   const isOld = (r: RunDetail) => !isLive(r) && params.length > 0 && JSON.stringify(r.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
@@ -281,6 +288,9 @@ export function Panel({
             <Glyph script={script} size={22} />
           </span>
           <h2 className="grow">{script.name}</h2>
+          <button className="ib" title="Edit" aria-label="Edit" onClick={() => onEdit()}>
+            <Pencil size={16} />
+          </button>
           <button className={`ib ${favourite ? "fav" : ""}`} aria-pressed={favourite} title={favourite ? "Remove from favourites" : "Add to favourites"} onClick={onFavourite}>
             <Star size={17} fill={favourite ? "currentColor" : "none"} />
           </button>
@@ -353,7 +363,7 @@ export function Panel({
                 </details>
                 {agent && (
                   <div className="row wrap after-run">
-                    <button onClick={() => setEditWith({ title: "Fix this script", text: `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.` })}>
+                    <button onClick={() => onEdit("ask", `This script doesn't load:\n${script.error}\n\nFind the cause and fix it.`)}>
                       Ask {short(agent.name)} to fix it
                     </button>
                     <span className="muted small">Opens a window where it works on the fix.</span>
@@ -519,21 +529,6 @@ export function Panel({
         )}
       </div>
 
-      {editWith && (
-        <EditWithDialog
-          title={editWith.title}
-          harnesses={state.harnesses}
-          initial={editWith.text}
-          onClose={() => setEditWith(null)}
-          onSubmit={(h, what) => {
-            setEditWith(null);
-            api
-              .editWith(script.id, h.id, what)
-              .then(() => setTab("run"))
-              .catch((e) => setMsg({ text: e.message, tone: "bad" }));
-          }}
-        />
-      )}
     </aside>
   );
 }
