@@ -151,3 +151,16 @@ test("an agent's work shows as a run of the script: steps, messages, done", asyn
   expect(sys).toContain("Trying the script");
   expect(ev.filter((e) => e.t === "show").length).toBe(1); // the final summary isn't repeated
 }, 30_000);
+
+test("delete moves a script to the trash; restore puts it back with its schedule", async () => {
+  writeFileSync(join(engine.settings.workspace, "p/scripts/tmp-del.ts"), `console.log("bye")`);
+  await engine.rescan();
+  engine.setSchedule("p/scripts/tmp-del.ts", "1h", {}, true);
+  const trash = await engine.deleteScript("p/scripts/tmp-del.ts");
+  expect(engine.state().scripts.some((s: any) => s.id === "p/scripts/tmp-del.ts")).toBe(false);
+  expect(engine.store.schedules().find((s) => s.script === "p/scripts/tmp-del.ts")?.enabled).toBe(false);
+  const id = await engine.restoreScript(trash);
+  expect(id).toBe("p/scripts/tmp-del.ts");
+  expect(engine.state().scripts.some((s: any) => s.id === id)).toBe(true);
+  expect(engine.store.schedules().find((s) => s.script === id)?.enabled).toBe(true);
+}, 30_000);

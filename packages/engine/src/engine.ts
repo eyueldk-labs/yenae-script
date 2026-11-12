@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, watch, writeFileSync, type FSWatcher } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { Store, type ScheduleRow } from "./db";
 import { Runs } from "./runs";
 import { Scheduler } from "./scheduler";
@@ -7,7 +7,7 @@ import { scanWorkspace, type Project, type ScriptInfo } from "./scan";
 import { ensureWorkspace, createProject, createScript, seedExamples } from "./workspace";
 import { openInEditor } from "./launch";
 import { agentCommand, detectAgents } from "./agents";
-import { aiClients, connectAiClient, ensureBridge } from "./ai-clients";
+import { aiClients, connectAiClient, ensureBridge, resyncAiClients } from "./ai-clients";
 import { insideWorkspace, parseEvery } from "./paths";
 import type { RunSource, RunSummary } from "./db";
 import { normalizeLayout, type Layout } from "./layout";
@@ -63,6 +63,20 @@ export class Engine {
     return s;
   }
 
+  /** Listens on another port from now on (0 while the system picks one). */
+  setPort(port: number) {
+    this.settings.port = port;
+    if (!port) return;
+    const path = join(this.dataDir, "settings.json");
+    let saved: any = {};
+    try {
+      saved = JSON.parse(readFileSync(path, "utf8"));
+    } catch {}
+    writeFileSync(path, JSON.stringify({ ...saved, port }, null, 2));
+    // AI apps connected to the old address: point them at the new one (in the background).
+    setTimeout(() => resyncAiClients(this.mcpConn), 1000);
+  }
+
   saveSettings(patch: Partial<Pick<Settings, "workspace">>) {
     if (patch.workspace) {
       this.settings.workspace = resolve(patch.workspace);
@@ -92,6 +106,7 @@ export class Engine {
     ensureWorkspace(this.settings.workspace, { url: this.mcpUrl, token: this.settings.token });
     if (this.opts.examples !== false) seedExamples(this.settings.workspace);
     ensureBridge(this.settings.workspace);
+    this.emptyOldTrash();
     this.watcher?.close();
     let debounce: Timer | undefined;
     try {
@@ -191,6 +206,70 @@ export class Engine {
 
   layout(): Layout {
     return normalizeLayout(this.store.getValue(this.layoutKey), this.scripts.map((s) => s.id));
+  }
+
+  /** A script's code, for the app's editor. */
+  readSource(scriptId: string) {
+    this.script(scriptId);
+    return readFileSync(insideWorkspace(this.settings.workspace, scriptId), "utf8");
+  }
+
+  /** Saves a script's code and says whether it still loads (the error if not). */
+  async writeSource(scriptId: string, text: string) {
+    this.script(scriptId);
+    writeFileSync(insideWorkspace(this.settings.workspace, scriptId), text);
+    await this.rescan();
+    return { error: this.scripts.find((x) => x.id === scriptId)?.error ?? null };
+  }
+
+  private get trashDir() {
+    return join(this.settings.workspace, ".yenae", "trash");
+  }
+
+  /**
+   * Deletes a script: anything it has running stops, its schedule is turned off, and the
+   * file moves to `.yenae/trash/` (with its schedule and place in the layout) so it can be
+   * put back. Returns the id to restore it with.
+   */
+  async deleteScript(scriptId: string) {
+    this.script(scriptId);
+    for (const r of [...this.runs.live.values()]) if (r.script === scriptId) this.runs.stop(r.id);
+    const schedule = this.store.schedules().find((x) => x.script === scriptId) ?? null;
+    if (schedule?.enabled) this.scheduler.set(scriptId, schedule.every, schedule.params, false);
+    const trashId = String(Date.now());
+    const dir = join(this.trashDir, trashId);
+    const dest = join(dir, "files", scriptId);
+    mkdirSync(dirname(dest), { recursive: true });
+    renameSync(insideWorkspace(this.settings.workspace, scriptId), dest);
+    writeFileSync(join(dir, "meta.json"), JSON.stringify({ script: scriptId, schedule, layout: this.layout() }, null, 2));
+    await this.rescan();
+    return trashId;
+  }
+
+  /** Puts a deleted script back: its file, its schedule (if it was on) and its place. */
+  async restoreScript(trashId: string) {
+    if (!/^\d+$/.test(trashId)) throw new Error("Nothing to restore.");
+    const dir = join(this.trashDir, trashId);
+    const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as { script: string; schedule: ScheduleRow | null; layout: Layout };
+    const target = insideWorkspace(this.settings.workspace, meta.script);
+    if (existsSync(target)) throw new Error("A script with that name exists again, so it can't be put back.");
+    mkdirSync(dirname(target), { recursive: true });
+    renameSync(join(dir, "files", meta.script), target);
+    rmSync(dir, { recursive: true, force: true });
+    await this.rescan();
+    if (meta.schedule?.enabled) this.scheduler.set(meta.script, meta.schedule.every, meta.schedule.params, true);
+    this.saveLayout(meta.layout);
+    return meta.script;
+  }
+
+  /** Deleted scripts are kept for 30 days. */
+  private emptyOldTrash() {
+    try {
+      for (const name of readdirSync(this.trashDir)) {
+        const p = join(this.trashDir, name);
+        if (Date.now() - statSync(p).mtimeMs > 30 * 86_400_000) rmSync(p, { recursive: true, force: true });
+      }
+    } catch {}
   }
 
   saveLayout(raw: unknown) {

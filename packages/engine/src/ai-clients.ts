@@ -125,6 +125,8 @@ type Def = {
   found: () => boolean;
   connected: (c: Conn) => boolean;
   connect?: (c: Conn) => void;
+  /** The file holding its settings, to see whether they still point at this app. */
+  file?: () => string;
   steps: (c: Conn) => AiClient["steps"];
 };
 
@@ -150,6 +152,7 @@ const DEFS: Def[] = [
     name: "Claude Code",
     found: () => !!Bun.which("claude"),
     connected: () => hasEntry(join(home, ".claude.json"), "mcpServers"),
+    file: () => join(home, ".claude.json"),
     connect: (c) => {
       try {
         run(["claude", "mcp", "remove", "--scope", "user", NAME]);
@@ -163,6 +166,7 @@ const DEFS: Def[] = [
     name: "Claude Desktop",
     found: () => existsSync(dirname(claudeDesktopConfig())),
     connected: () => hasEntry(claudeDesktopConfig(), "mcpServers"),
+    file: claudeDesktopConfig,
     connect: (c) => mergeJson(claudeDesktopConfig(), "mcpServers", desktopEntry(c)),
     steps: (c) => [
       { text: `Open Claude Desktop → Settings → Developer → Edit Config, add this under "mcpServers", save, and restart Claude:`, code: JSON.stringify({ [NAME]: desktopEntry(c) }, null, 2) },
@@ -179,6 +183,7 @@ const DEFS: Def[] = [
         return false;
       }
     },
+    file: codexConfig,
     connect: (c) => {
       const p = codexConfig();
       let t = "";
@@ -198,6 +203,7 @@ const DEFS: Def[] = [
     name: "Gemini CLI",
     found: () => !!Bun.which("gemini"),
     connected: () => hasEntry(join(home, ".gemini", "settings.json"), "mcpServers"),
+    file: () => join(home, ".gemini", "settings.json"),
     connect: (c) => mergeJson(join(home, ".gemini", "settings.json"), "mcpServers", { httpUrl: c.url, headers: { Authorization: `Bearer ${c.token}` } }),
     steps: (c) => [{ text: "In a terminal:", code: `gemini mcp add --scope user --transport http --header "${header(c)}" ${NAME} ${c.url}` }],
   },
@@ -206,6 +212,7 @@ const DEFS: Def[] = [
     name: "Cursor",
     found: () => !!Bun.which("cursor") || existsSync(join(home, ".cursor")),
     connected: () => hasEntry(join(home, ".cursor", "mcp.json"), "mcpServers"),
+    file: () => join(home, ".cursor", "mcp.json"),
     connect: (c) => mergeJson(join(home, ".cursor", "mcp.json"), "mcpServers", { url: c.url, headers: { Authorization: `Bearer ${c.token}` } }),
     steps: (c) => [
       { text: `Add this under "mcpServers" in ${join(home, ".cursor", "mcp.json")}:`, code: JSON.stringify({ [NAME]: { url: c.url, headers: { Authorization: `Bearer ${c.token}` } } }, null, 2) },
@@ -216,6 +223,7 @@ const DEFS: Def[] = [
     name: "VS Code (Copilot)",
     found: () => !!Bun.which("code") || existsSync(join(home, ".copilot")),
     connected: () => hasEntry(join(process.env.COPILOT_HOME ?? join(home, ".copilot"), "mcp-config.json"), "mcpServers"),
+    file: () => join(process.env.COPILOT_HOME ?? join(home, ".copilot"), "mcp-config.json"),
     connect: (c) =>
       mergeJson(join(process.env.COPILOT_HOME ?? join(home, ".copilot"), "mcp-config.json"), "mcpServers", {
         type: "http",
@@ -258,6 +266,21 @@ export function connectAiClient(id: string, c: Conn) {
   if (!d?.connect) throw new Error("Connect it by hand with the steps shown.");
   if (id === "claude-desktop") ensureBridge(c.workspace);
   d.connect(c);
+}
+
+/**
+ * After the app moved to another port, updates the AI apps that were connected to it, so
+ * they keep working without being set up again.
+ */
+export function resyncAiClients(c: Conn) {
+  for (const d of DEFS) {
+    if (!d.connect || !d.file || !safe(() => d.connected(c))) continue;
+    try {
+      if (readFileSync(d.file(), "utf8").includes(c.url)) continue;
+      if (d.id === "claude-desktop") ensureBridge(c.workspace);
+      d.connect(c);
+    } catch {}
+  }
 }
 
 function safe(f: () => boolean) {

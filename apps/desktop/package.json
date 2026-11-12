@@ -9,6 +9,13 @@
     "prepare:app": "bun ../../scripts/prepare.ts"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6",
+    "@codemirror/commands": "^6",
+    "@codemirror/lang-javascript": "^6",
+    "@codemirror/language": "^6",
+    "@codemirror/search": "^6",
+    "@codemirror/state": "^6",
+    "@codemirror/view": "^6",
     "@fontsource-variable/bricolage-grotesque": "5.2.8",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-autostart": "^2",

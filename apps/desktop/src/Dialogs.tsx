@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { isTauri, type Api, type State } from "./api";
 import { PathField } from "./PathField";
 import { applyUpdate, checkUpdates, useUpdateStatus } from "./updates";
 import { AiConnect } from "./AiConnect";
+import { MOD } from "./fmt";
 
 import type { Harness } from "./api";
 
@@ -22,7 +23,7 @@ export function holdModal() {
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 
-function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const close = useRef(onClose);
@@ -68,7 +69,7 @@ function Dialog({ title, onClose, children }: { title: string; onClose: () => vo
 
   return (
     <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={box} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trap}>
+      <div ref={box} className={`dialog ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trap}>
         <div className="dialog-head">
           <h2 id={titleId}>{title}</h2>
           <button type="button" className="ib" aria-label="Close" title="Close (Esc)" onClick={() => close.current()}>
@@ -281,6 +282,189 @@ export function EditWithDialog({
           </button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+const CodeEditor = lazy(() => import("./CodeEditor"));
+
+/**
+ * Edit a script, two ways: describe a change for an AI agent to make (in the background,
+ * shown in the script's panel), or change the code yourself in the built-in editor.
+ */
+export function EditScriptDialog({
+  api,
+  script,
+  harnesses,
+  tab: startTab,
+  initial = "",
+  onClose,
+  onStarted,
+  onSaved,
+}: {
+  api: Api;
+  script: { id: string; name: string };
+  harnesses: Harness[];
+  tab?: "ask" | "code";
+  initial?: string;
+  onClose: () => void;
+  /** An agent started on it (its run id). */
+  onStarted: (run: string) => void;
+  onSaved?: () => void;
+}) {
+  const [tab, setTab] = useState<"ask" | "code">(startTab ?? (harnesses.length ? "ask" : "code"));
+  const [what, setWhat] = useState(initial);
+  const [harness, setHarness] = useState(preferredHarness(harnesses)?.id ?? "");
+  const agent = harnesses.find((h) => h.id === harness) ?? harnesses[0];
+  const [code, setCode] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; bad: boolean } | null>(null);
+  const [askDiscard, setAskDiscard] = useState(false);
+  const dirty = code !== null && code !== saved;
+
+  useEffect(() => {
+    if (tab !== "code" || code !== null) return;
+    api
+      .readSource(script.id)
+      .then((r) => {
+        setCode(r.text);
+        setSaved(r.text);
+      })
+      .catch((e) => setMsg({ text: e.message, bad: true }));
+  }, [tab]);
+
+  const save = async () => {
+    if (code === null || busy) return;
+    setBusy(true);
+    try {
+      const r = await api.writeSource(script.id, code);
+      setSaved(code);
+      setMsg(r.error ? { text: `Saved, but it doesn't load: ${r.error}`, bad: true } : { text: "Saved.", bad: false });
+      onSaved?.();
+    } catch (e: any) {
+      setMsg({ text: e.message, bad: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const close = () => (dirty ? setAskDiscard(true) : onClose());
+
+  return (
+    <Dialog title={`Edit ${script.name}`} onClose={close} wide={tab === "code"}>
+      <div className="seg" role="tablist" aria-label="How to edit">
+        <button type="button" role="tab" aria-selected={tab === "ask"} className={tab === "ask" ? "on" : ""} onClick={() => setTab("ask")}>
+          Describe a change
+        </button>
+        <button type="button" role="tab" aria-selected={tab === "code"} className={tab === "code" ? "on" : ""} onClick={() => setTab("code")}>
+          Edit the code
+        </button>
+      </div>
+
+      {tab === "ask" &&
+        (agent ? (
+          <form
+            className="form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              store.setHarness(agent.id);
+              setBusy(true);
+              try {
+                const { run } = await api.editWith(script.id, agent.id, what);
+                onStarted(run);
+              } catch (err: any) {
+                setMsg({ text: err.message, bad: true });
+                setBusy(false);
+              }
+            }}
+          >
+            <div className="field">
+              <label htmlFor="es-what">What should change?</label>
+              <textarea id="es-what" rows={initial ? 7 : 4} value={what} onChange={(e) => setWhat(e.target.value)} autoFocus placeholder="e.g. Also skip files smaller than 1 MB." />
+            </div>
+            {harnesses.length > 1 && (
+              <div className="field">
+                <label htmlFor="es-agent">Done by</label>
+                <select id="es-agent" value={agent.id} onChange={(e) => setHarness(e.target.value)}>
+                  {harnesses.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="hint">{agent.short} makes the change in the background; you can watch it in the script's panel.</div>
+            {msg && <div className={`msg ${msg.bad ? "bad" : "note"}`}>{msg.text}</div>}
+            <div className="row wrap end dialog-actions">
+              <button type="button" className="ghost" onClick={close}>
+                Cancel
+              </button>
+              <button className="primary" type="submit" disabled={!what.trim() || busy}>
+                Start
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="form">
+            <p className="muted">
+              To have changes made for you, install an AI coding agent such as Claude Code, Codex or Gemini CLI, then open this again. Or edit the code yourself.
+            </p>
+          </div>
+        ))}
+
+      {tab === "code" && (
+        <div className="form">
+          {code === null ? (
+            <p className="muted small">{msg?.text ?? "Loading…"}</p>
+          ) : (
+            <Suspense fallback={<p className="muted small">Loading the editor…</p>}>
+              <CodeEditor value={code} onChange={(v) => setCode(v)} onSave={save} />
+            </Suspense>
+          )}
+          {msg && code !== null && <div className={`msg ${msg.bad ? "bad" : "note"}`} role="status">{msg.text}</div>}
+          {askDiscard ? (
+            <div className="row wrap end dialog-actions">
+              <span className="grow">You have changes that aren't saved.</span>
+              <button type="button" className="ghost" onClick={onClose}>
+                Discard
+              </button>
+              <button type="button" className="primary" onClick={() => setAskDiscard(false)}>
+                Keep editing
+              </button>
+            </div>
+          ) : (
+            <div className="row wrap end dialog-actions">
+              <span className="muted small grow">{MOD}+S saves</span>
+              <button type="button" className="ghost" onClick={close}>
+                {dirty ? "Cancel" : "Close"}
+              </button>
+              <button type="button" className="primary" disabled={!dirty || busy} onClick={save}>
+                {busy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+/** "Delete Week number?" before a script goes to the trash. */
+export function ConfirmDeleteDialog({ name, onClose, onDelete }: { name: string; onClose: () => void; onDelete: () => void }) {
+  return (
+    <Dialog title={`Delete ${name}?`} onClose={onClose}>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Its schedule stops. You can undo this right after, and the file is kept in the scripts folder's trash for 30 days.
+      </p>
+      <div className="row wrap end dialog-actions">
+        <button type="button" className="ghost" onClick={onClose} autoFocus>
+          Cancel
+        </button>
+        <button type="button" className="danger" onClick={onDelete}>
+          Delete
+        </button>
+      </div>
     </Dialog>
   );
 }

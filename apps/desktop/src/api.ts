@@ -188,6 +188,12 @@ export class Api {
   /** Has an agent change a script, in the background; returns the agent's run. */
   editWith = (script: string, harness: string, instructions: string) =>
     this.req<{ run: string }>("/api/edit-with", { script, harness, instructions });
+  /** Moves a script to the trash; `trash` restores it. */
+  deleteScript = (script: string) => this.req<{ trash: string }>("/api/script/delete", { script });
+  restoreScript = (trash: string) => this.req<{ id: string }>("/api/script/restore", { trash });
+  readSource = (script: string) => this.req<{ text: string }>(`/api/script/source?id=${encodeURIComponent(script)}`);
+  /** Saves a script's code; `error` says why it doesn't load, if it doesn't. */
+  writeSource = (script: string, text: string) => this.req<{ error: string | null }>("/api/script/source", { script, text });
   aiClients = () => this.req<import("./AiConnect").AiClient[]>("/api/ai");
   connectAi = (id: string) => this.req<import("./AiConnect").AiClient[]>("/api/ai/connect", { id });
   open = (script: string) => this.req("/api/open", { script });

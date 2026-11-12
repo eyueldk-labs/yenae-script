@@ -108,6 +108,13 @@ export function serve(engine: Engine) {
             return json(req, { id: await engine.newProject(body.name) });
           case "/api/script":
             return json(req, await engine.newScript(body.project, body.file, body.description ?? "", body.harness));
+          case "/api/script/source":
+            if (req.method === "POST") return json(req, await engine.writeSource(body.script, String(body.text ?? "")));
+            return json(req, { text: engine.readSource(q("id") ?? "") });
+          case "/api/script/delete":
+            return json(req, { trash: await engine.deleteScript(body.script) });
+          case "/api/script/restore":
+            return json(req, { id: await engine.restoreScript(body.trash) });
           case "/api/edit-with":
             return json(req, { run: engine.editWith(body.script, body.harness, body.instructions ?? "") });
           case "/api/open":

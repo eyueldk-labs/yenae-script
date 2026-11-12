@@ -82,7 +82,7 @@ pub(crate) async fn start_engine_supervised(app: AppHandle) {
             if engine.info.lock().unwrap().is_some() {
                 return;
             }
-            if engine_exited(&app) || start.elapsed() > Duration::from_secs(90) {
+            if engine_exited(&app) || start.elapsed() > Duration::from_secs(45) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
@@ -90,15 +90,15 @@ pub(crate) async fn start_engine_supervised(app: AppHandle) {
         let code = *engine.exit_code.lock().unwrap();
         log_line(&app, &format!("engine didn't start (attempt {attempt}, exit {code:?})"));
         stop_engine(&app);
-        if code == Some(3) {
-            kill_stale_engines();
-        }
-        tokio::time::sleep(Duration::from_millis(800 * attempt as u64)).await;
+        // A leftover engine (from before an update or a crash) can hold the database or the
+        // port: stop it whatever the error was.
+        kill_stale_engines(&app);
+        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
     }
     let reason = {
         let log = engine.log.lock().unwrap();
-        if log.iter().any(|l| l.contains("Can't listen on port")) {
-            "Another program is using the address Yenae Script needs (port 47321). Restarting the computer usually frees it.".to_string()
+        if log.iter().any(|l| l.contains("couldn't launch the engine")) {
+            "Part of Yenae Script is missing or blocked. Download it again from the website and install it over this one.".to_string()
         } else {
             "The background engine didn't start.".to_string()
         }
@@ -107,14 +107,15 @@ pub(crate) async fn start_engine_supervised(app: AppHandle) {
 }
 
 /// Stops engines this app started earlier that are still running (they hold its port).
-fn kill_stale_engines() {
-    let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) else { return };
+fn kill_stale_engines(app: &AppHandle) {
+    // Engines are recognised by the data folder they were given, wherever they were installed.
+    let Ok(data) = app.path().app_data_dir() else { return };
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         let ps = format!(
-            "Get-CimInstance Win32_Process -Filter \"Name='bun.exe'\" | Where-Object {{ $_.ExecutablePath -like '{}\\*' -and $_.CommandLine -like '*main.js*--data*' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
-            dir.display()
+            "Get-CimInstance Win32_Process -Filter \"Name='bun.exe'\" | Where-Object {{ $_.CommandLine -like '*main.js*--data*' -and $_.CommandLine.Contains('{}') }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
+            data.display().to_string().replace('\'', "''")
         );
         let _ = std::process::Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
@@ -123,7 +124,7 @@ fn kill_stale_engines() {
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("pkill").args(["-f", &format!("{}/bun .*main.js.*--data", dir.display())]).status();
+        let _ = std::process::Command::new("pkill").args(["-f", &format!("main.js --data {}", data.display())]).status();
     }
     std::thread::sleep(Duration::from_millis(500));
 }
@@ -235,7 +236,12 @@ fn toggle_main(app: &AppHandle) {
 /// Starts the engine from the active small update, or the one built into the app.
 pub(crate) fn start_engine(app: &AppHandle) {
     if let Err(e) = try_start_engine(app) {
-        eprintln!("could not start engine: {e}");
+        // Couldn't even launch it (a missing or blocked file): say so and stop waiting for it.
+        log_line(app, &format!("couldn't launch the engine: {e}"));
+        let engine = app.state::<Engine>();
+        *engine.info.lock().unwrap() = None;
+        *engine.exit_code.lock().unwrap() = None;
+        *engine.exited.lock().unwrap() = Some(Arc::new(AtomicBool::new(true)));
     }
 }
 
