@@ -24,23 +24,28 @@ my-project/
 
 ## Writing a script
 
+Keep scripts minimal: do exactly what the person asked, plus only what the task can't do
+without. Don't add extra features, options or settings. People want to press Run and get the
+result, so pick sensible values yourself, and only add a form field for something that truly
+differs from run to run (like which folder). Every field gets a default that works.
+
 \`\`\`ts
 import { defineScript, text, number, boolean, select, file, folder, ask, show } from "yenae-script";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export default defineScript({
   name: "Resize images",
   description: "Shrink every image in a folder.",
   icon: "image", // the tile icon; see ICONS in yenae-script for the names
   params: {
-    source: folder().label("Images"),
-    width: number({ min: 16 }).default(1280),
-    format: select(["jpg", "webp"]).default("webp"),
-    dryRun: boolean().label("Dry run").default(false),
-    note: text({ multiline: true }).optional(),
+    // Only what changes from run to run, each with a default that works.
+    source: folder().label("Images").default(join(homedir(), "Pictures")),
   },
   // Suggested schedule; the user switches it on in the app.
   // schedule: { every: "10m" },
-  async run({ source, width, format, dryRun }) {
+  async run({ source }) {
+    const width = 1280; // a sensible fixed choice, not a setting
     console.log("plain output shows live in the app");
     if (!(await ask.confirm(\`Resize images in \${source}?\`))) return "Cancelled";
     show.table([{ file: "a.png", before: "2 MB", after: "300 KB" }]);
@@ -52,7 +57,7 @@ export default defineScript({
 
 - Give every script a short \`name\`, a one-line \`description\` and an \`icon\`: the app shows them on its tile.
   Icons: ${ICON_LIST}.
-- Params become a form. Kinds: \`text\`, \`number\`, \`boolean\`, \`select\`, \`file\`, \`folder\`.
+- Params become a form; most scripts need none or one. Kinds: \`text\`, \`number\`, \`boolean\`, \`select\`, \`file\`, \`folder\`.
   Modifiers: \`.label()\`, \`.describe()\`, \`.default()\`, \`.optional()\`.
 - Ask while running: \`ask.text\`, \`ask.select\`, \`ask.confirm\`, \`ask.file\`, \`ask.folder\`.
 - Show results: \`show.text\`, \`show.markdown\`, \`show.table(rows)\`.
@@ -85,7 +90,9 @@ export function ensureWorkspace(workspace: string, mcp: { url: string; token: st
     ) + "\n",
   );
 
-  writeIfMissing(join(workspace, "AGENTS.md"), AGENTS_MD);
+  // Kept current with the app, unless someone rewrote it by hand.
+  const agentsMd = join(workspace, "AGENTS.md");
+  if (!existsSync(agentsMd) || readFileSync(agentsMd, "utf8").startsWith("# Yenae Script workspace\n")) writeIfChanged(agentsMd, AGENTS_MD);
   writeIfMissing(join(workspace, "CLAUDE.md"), "@AGENTS.md\n");
   // .mcp.json holds the engine token, so keep it out of git.
   writeIfMissing(join(workspace, ".gitignore"), "node_modules/\n.yenae/\n.mcp.json\n");

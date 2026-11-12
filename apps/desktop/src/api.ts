@@ -197,6 +197,7 @@ export class Api {
   aiClients = () => this.req<import("./AiConnect").AiClient[]>("/api/ai");
   connectAi = (id: string) => this.req<import("./AiConnect").AiClient[]>("/api/ai/connect", { id });
   open = (script: string) => this.req("/api/open", { script });
+  reveal = (script: string) => this.req("/api/reveal", { script });
 
   listen(onMsg: (m: ServerMsg) => void, onStatus: (up: boolean) => void) {
     let ws: WebSocket | null = null;

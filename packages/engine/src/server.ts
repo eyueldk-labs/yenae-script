@@ -120,6 +120,9 @@ export function serve(engine: Engine) {
           case "/api/open":
             engine.open(body.script);
             return json(req, { ok: true });
+          case "/api/reveal":
+            engine.reveal(body.script);
+            return json(req, { ok: true });
           default:
             return json(req, { error: "Not found" }, 404);
         }

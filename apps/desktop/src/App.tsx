@@ -147,6 +147,25 @@ export function App() {
     import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_attention", { count: attention.needs.length })).catch(() => {});
   }, [attention.needs.length]);
 
+  // Favourites are also in the tray's right-click menu, to run without opening the window.
+  const trayFavs = state ? JSON.stringify(state.layout.favourites.flatMap((id) => {
+    const s = state.scripts.find((x) => x.id === id);
+    return s ? [{ id, name: s.name }] : [];
+  })) : "";
+  useEffect(() => {
+    if (!isTauri() || !state) return;
+    import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_tray_favourites", { favourites: JSON.parse(trayFavs) }).catch(() => {}));
+  }, [trayFavs]);
+  const quickRunRef = useRef<(id: string, fromTray?: boolean) => void>(() => {});
+  useEffect(() => {
+    if (!isTauri()) return;
+    let off: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) =>
+      listen<string>("tray-run", (e) => quickRunRef.current(e.payload, true)).then((u) => (off = u)),
+    );
+    return () => off?.();
+  }, []);
+
   // The hotkey shows the window: put the cursor in search, launcher-style.
   useEffect(() => {
     if (!isTauri()) return;
@@ -229,14 +248,19 @@ export function App() {
   };
 
   // Run from the catalog with the form's last values; a missing value opens the form instead.
-  const quickRun = async (id: string) => {
+  /** Runs a script with its last values; one that still needs input opens instead (from the tray: brought forward). */
+  const quickRun = async (id: string, fromTray = false) => {
     const s = state?.scripts.find((x) => x.id === id);
     if (!s || !api) return;
     const values = { ...defaults(s.params), ...store.get<Record<string, unknown>>(`values:${id}`, {}) };
-    if (missing(s.params, values).length) return open(id, { focus: true });
+    if (s.error || missing(s.params, values).length) {
+      if (fromTray) import("@tauri-apps/api/core").then(({ invoke }) => invoke("show_window").catch(() => {}));
+      return open(id, { focus: true });
+    }
     const { id: run } = await api.run(id, values).catch((e) => (setError(e.message), { id: "" }));
     if (run) open(id, { run });
   };
+  quickRunRef.current = quickRun;
 
   // Ctrl/Cmd+K or "/" focuses search; Escape closes the panel, then clears search.
   useEffect(() => {

@@ -38,11 +38,37 @@ export interface ParseState {
   lastText?: string;
   /** Set when the agent reports it finished, and whether that was an error. */
   result?: { ok: boolean; text: string };
+  /** Tool calls waiting for their result: id -> tool name. */
+  tools?: Record<string, string>;
 }
 
 const now = () => Date.now();
 const step = (text: string): RunEvent => ({ t: "sys", text, at: now() });
 const said = (markdown: string): RunEvent => ({ t: "show", item: { kind: "markdown", markdown }, at: now() });
+
+/** What a tool printed or changed, shortened to its last lines so the panel stays readable. */
+export function detail(text: unknown, lines = 14, chars = 1500): RunEvent[] {
+  let t = typeof text === "string" ? text : Array.isArray(text) ? text.map((c: any) => (typeof c === "string" ? c : (c?.text ?? ""))).join("\n") : "";
+  t = t.replace(/\r/g, "").replace(/\n+$/, "");
+  if (!t.trim()) return [];
+  let ls = t.split("\n");
+  const cut = ls.length > lines;
+  if (cut) ls = ls.slice(-lines);
+  let out = ls.join("\n");
+  if (out.length > chars) out = out.slice(-chars);
+  return [{ t: "out", text: (cut || out.length < t.length ? "…\n" : "") + out + "\n", at: now() }];
+}
+
+/** The change an edit makes, as "- old / + new" lines. */
+function editDetail(input: any): RunEvent[] {
+  const edits: { old_string?: string; new_string?: string }[] = Array.isArray(input?.edits) ? input.edits : [input ?? {}];
+  const lines: string[] = [];
+  for (const e of edits) {
+    for (const l of String(e.old_string ?? "").split("\n")) if (l.trim()) lines.push(`- ${l}`);
+    for (const l of String(e.new_string ?? "").split("\n")) if (l.trim()) lines.push(`+ ${l}`);
+  }
+  return lines.length ? detail(lines.slice(0, 40).join("\n"), 20) : [];
+}
 
 /** "Editing say-hello.ts", "Trying the script": what a tool call means, in a few words. */
 function describeTool(name: string, input: any): string | null {
@@ -58,7 +84,9 @@ function describeTool(name: string, input: any): string | null {
   if (/run_script/.test(name)) return "Trying the script";
   if (/get_run|answer_question|stop_run/.test(name)) return "Checking the result";
   if (/TodoWrite|ToolSearch|thinking/i.test(name)) return null;
-  return null;
+  if (/WebFetch|web_fetch|fetch/i.test(name)) return "Reading a web page";
+  if (/WebSearch|web_search|google_web_search/i.test(name)) return "Searching the web";
+  return name ? `Using ${name.replace(/^mcp__[^_]+(?:-[^_]+)*__/, "").replace(/_/g, " ")}` : null;
 }
 
 /** Claude Code: `claude -p --output-format stream-json`. */
@@ -76,9 +104,21 @@ function parseClaude(line: string, st: ParseState): RunEvent[] {
         st.lastText = c.text.trim();
         out.push(said(st.lastText!));
       } else if (c.type === "tool_use") {
-        const s = describeTool(String(c.name ?? "").replace(/^mcp__[^_]+(?:-[^_]+)*__/, ""), c.input);
+        const name = String(c.name ?? "").replace(/^mcp__[^_]+(?:-[^_]+)*__/, "");
+        const s = describeTool(name, c.input);
         if (s) out.push(step(s));
+        if (/^(Edit|MultiEdit)$/.test(name)) out.push(...editDetail(c.input));
+        else if (name === "Write") out.push(...detail(c.input?.content, 10));
+        if (c.id) (st.tools ??= {})[c.id] = name;
       }
+    }
+  } else if (d.type === "user") {
+    // Results of its tool calls: show what commands and script runs printed.
+    for (const c of d.message?.content ?? []) {
+      if (c.type !== "tool_result") continue;
+      const name = st.tools?.[c.tool_use_id] ?? "";
+      delete st.tools?.[c.tool_use_id];
+      if (/^(Bash|run_script|get_run)$/.test(name) || c.is_error) out.push(...detail(c.content));
     }
   } else if (d.type === "result") {
     const text = String(d.result ?? "").trim();
@@ -110,9 +150,14 @@ function parseCodex(line: string, st: ParseState): RunEvent[] {
       st.lastText = it.text.trim();
       return [said(st.lastText!)];
     }
-    if (d.type !== "item.started") return [];
+    if (d.type === "item.completed") {
+      if (it.type === "command_execution") return detail(it.aggregated_output);
+      if (it.type === "mcp_tool_call") return detail(it.result?.content ?? it.error?.message);
+      if (it.type === "reasoning" && it.text?.trim()) return [step(String(it.text).trim().split("\n")[0]!.replace(/\*\*/g, "").slice(0, 140))];
+      return [];
+    }
     if (it.type === "command_execution") return toolStep("Bash", { command: it.command });
-    if (it.type === "file_change") return [step(it.changes?.length === 1 && it.changes[0]?.path ? `Editing ${basename(it.changes[0].path)}` : "Editing files")];
+    if (it.type === "file_change") return [step(it.changes?.length === 1 && it.changes[0]?.path ? `Editing ${basename(it.changes[0].path)}` : `Editing ${it.changes?.length ?? ""} files`.replace("  ", " "))];
     if (it.type === "mcp_tool_call") return toolStep(String(it.tool ?? ""), it.arguments);
   }
   if (d.type === "turn.completed") st.result = { ok: true, text: "" };
@@ -129,7 +174,15 @@ function parseGemini(line: string, st: ParseState): RunEvent[] {
     return [];
   }
   const out = flushText(st);
-  if (d.type === "tool_use") out.push(...toolStep(String(d.tool_name ?? ""), d.parameters));
+  if (d.type === "tool_use") {
+    out.push(...toolStep(String(d.tool_name ?? ""), d.parameters));
+    if (/^(replace|edit)$/i.test(String(d.tool_name))) out.push(...editDetail(d.parameters));
+    if (d.tool_id) (st.tools ??= {})[d.tool_id] = String(d.tool_name ?? "");
+  }
+  if (d.type === "tool_result") {
+    const name = st.tools?.[d.tool_id] ?? "";
+    if (/shell|run_script|get_run/i.test(name) || d.status === "error") out.push(...detail(d.output ?? d.error?.message));
+  }
   if (d.type === "result") st.result = { ok: d.status === "success", text: String(d.error?.message ?? "") };
   if (d.type === "error") st.result = { ok: false, text: String(d.message ?? d.error ?? "") };
   return out;
@@ -144,7 +197,19 @@ function parseOpenCode(line: string, st: ParseState): RunEvent[] {
     return [];
   }
   const out = flushText(st);
-  if (d.type === "tool_use" && d.part?.state?.status !== "completed") out.push(...toolStep(String(d.part?.tool ?? ""), d.part?.state?.input));
+  if (d.type === "tool_use") {
+    const tool = String(d.part?.tool ?? "");
+    const state = d.part?.state ?? {};
+    // One step per tool call, however often it's reported; what it printed once it's done.
+    const id = String(d.part?.callID ?? d.part?.id ?? "");
+    st.tools ??= {};
+    if (!id || !(id in st.tools)) {
+      if (id) st.tools[id] = tool;
+      out.push(...toolStep(tool, state.input));
+      if (/^(edit)$/i.test(tool)) out.push(...editDetail({ old_string: state.input?.oldString, new_string: state.input?.newString }));
+    }
+    if ((state.status === "completed" && /bash|run_script|get_run/i.test(tool)) || state.status === "error") out.push(...detail(state.output ?? state.error));
+  }
   if (d.type === "error") st.result = { ok: false, text: String(d.error?.message ?? d.error?.data?.message ?? "") };
   return out;
 }

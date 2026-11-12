@@ -80,7 +80,7 @@ export function RunOutput({
       <div className="output">
         {run.events.map((e, i) => (e.t === "show" || e.t === "ask" ? <Event key={i} e={e} answered={e.t === "ask" ? answers.get(e.id) : undefined} /> : null))}
         <details className="tech">
-          <summary>Show output</summary>
+          <summary>{run.source === "agent" ? "Show what it did" : "Show output"}</summary>
           <pre className="log">{[...log, ...tech].join("\n")}</pre>
         </details>
         {footer}
@@ -129,8 +129,21 @@ function TechDetails({ lines }: { lines: string[] }) {
 
 function Event({ e, answered }: { e: RunEvent; answered: unknown }) {
   switch (e.t) {
-    case "out":
+    case "out": {
+      // A change an agent made: "- old" and "+ new" lines, coloured.
+      const lines = e.text.replace(/\n$/, "").split("\n");
+      if (lines.length && lines.every((l) => l === "…" || l.startsWith("- ") || l.startsWith("+ ")))
+        return (
+          <pre className="log diff">
+            {lines.map((l, i) => (
+              <div key={i} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : ""}>
+                {l}
+              </div>
+            ))}
+          </pre>
+        );
       return <pre className="log">{e.text}</pre>;
+    }
     case "err": {
       // The message reads as a sentence; the stack trace is in Technical details.
       const message = e.text

@@ -46,6 +46,44 @@ struct Engine {
     failed: Mutex<Option<String>>,
 }
 
+/// The tray's right-click menu: favourite scripts to run in one click, then Show and Quit.
+fn tray_menu(app: &AppHandle, favourites: &[TrayScript]) -> tauri::Result<Menu<tauri::Wry>> {
+    use tauri::menu::{IsMenuItem, PredefinedMenuItem};
+    let menu = Menu::new(app)?;
+    if !favourites.is_empty() {
+        menu.append(&MenuItem::with_id(app, "fav-head", "Run a favourite", false, None::<&str>)?)?;
+        for f in favourites.iter().take(15) {
+            // "&" marks a keyboard accelerator in Windows menus; double it to show one.
+            let item = MenuItem::with_id(app, format!("run:{}", f.id), f.name.replace('&', "&&"), true, None::<&str>)?;
+            menu.append(&item as &dyn IsMenuItem<tauri::Wry>)?;
+        }
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    menu.append(&MenuItem::with_id(app, "show", "Show", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
+    Ok(menu)
+}
+
+#[derive(serde::Deserialize, PartialEq, Clone)]
+struct TrayScript {
+    id: String,
+    name: String,
+}
+
+/// A favourite run from the tray that needs input: bring the window forward.
+#[tauri::command]
+fn show_window(app: AppHandle) {
+    show_main(&app);
+}
+
+/// The window keeps the tray's favourites in step with the home screen.
+#[tauri::command]
+fn set_tray_favourites(app: AppHandle, favourites: Vec<TrayScript>) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("tray"), tray_menu(&app, &favourites)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
 /// Where the window waits: starting, ready, or failed (with why and the engine's last words).
 #[tauri::command]
 fn engine_status(app: AppHandle) -> serde_json::Value {
@@ -362,7 +400,9 @@ pub fn run() {
             check_updates,
             apply_update,
             ui_ready,
-            dismiss_whats_new
+            dismiss_whats_new,
+            set_tray_favourites,
+            show_window
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -380,9 +420,7 @@ pub fn run() {
                 .center()
                 .build()?;
 
-            let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit_item])?;
+            let menu = tray_menu(&handle, &[])?;
             TrayIconBuilder::with_id("tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Yenae Script")
@@ -391,7 +429,12 @@ pub fn run() {
                 .on_menu_event(|app, e| match e.id.as_ref() {
                     "show" => show_main(app),
                     "quit" => quit(app),
-                    _ => {}
+                    id => {
+                        // A favourite: the window runs it (and comes forward only if it needs input).
+                        if let Some(script) = id.strip_prefix("run:") {
+                            let _ = app.emit("tray-run", script.to_string());
+                        }
+                    }
                 })
                 .on_tray_icon_event(|tray, e| {
                     if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {

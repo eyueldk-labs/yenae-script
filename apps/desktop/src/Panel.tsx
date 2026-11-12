@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Ellipsis, Pencil, Star, X } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Ellipsis, Pencil, Star, X } from "lucide-react";
 import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
 import { folderWith, toggleInFolder } from "./layoutOps";
 import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, splitUnit, startValues } from "./Form";
@@ -207,13 +207,14 @@ export function Panel({
       .map((f) => ({ label: f.name, checked: f.scripts.includes(script.id), onSelect: () => onLayout(toggleInFolder(layout, script.id, f.id)) })),
     { label: "New folder…", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
     "separator",
+    { label: "Show in folder", onSelect: () => api.reveal(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
     { heading: "For developers" },
     { label: "Open file", onSelect: () => api.open(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
     "separator",
     { label: "Delete…", onSelect: onDelete },
   ];
 
-  const isOld = (r: RunDetail) => !isLive(r) && params.length > 0 && JSON.stringify(r.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
+  const isOld = (r: RunDetail) => !isLive(r) && r.source !== "agent" && params.length > 0 && JSON.stringify(r.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
 
   // A failure always shows first, right under the tabs and above the form.
   const failFirst = !!run && !live && run.status === "failed";
@@ -273,9 +274,55 @@ export function Panel({
 
   const output = run && result(run);
 
+  // Drag the panel's left edge (or focus it and use the arrow keys) to make it wider or narrower.
+  const [change, setChange] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [width, setWidth] = useState(() => store.get("panelWidth", 420));
+  const clampW = (w: number) => Math.round(Math.max(340, Math.min(w, window.innerWidth - 360)));
+  const resizeTo = (w: number) => {
+    const c = clampW(w);
+    setWidth(c);
+    store.set("panelWidth", c);
+  };
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startW = root.current?.getBoundingClientRect().width ?? width;
+    const move = (m: PointerEvent) => setWidth(clampW(startW + startX - m.clientX));
+    const up = (u: PointerEvent) => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      resizeTo(startW + startX - u.clientX);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  };
+
   return (
     // The panel carries the script's colour on its icon tile.
-    <aside ref={root} className={`panel hue-${hueOf(script.id)} ${wide ? "wide" : ""}`} aria-label={script.name}>
+    <aside ref={root} className={`panel hue-${hueOf(script.id)} ${wide ? "wide" : ""}`} aria-label={script.name} style={{ "--panel-w": `${width}px` } as React.CSSProperties}>
+      {!wide && (
+        <div
+          className="panel-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Panel width"
+          aria-valuenow={width}
+          aria-valuemin={340}
+          tabIndex={0}
+          title="Drag to resize · double-click to reset"
+          onPointerDown={startResize}
+          onDoubleClick={() => resizeTo(420)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") resizeTo(width + 24);
+            else if (e.key === "ArrowRight") resizeTo(width - 24);
+            else return;
+            e.preventDefault();
+          }}
+        />
+      )}
       <header className="panel-head">
         <button className="ib back-btn" onClick={onClose} aria-label="Back to scripts">
           <ChevronLeft size={18} />
@@ -527,6 +574,49 @@ export function Panel({
         )}
       </div>
 
+      {/* Change it by saying what should be different: the quickest way to tweak a script. */}
+      {agent && !live && (
+        <form
+          className="ask-bar"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const what = change.trim();
+            if (!what || asking) return;
+            setAsking(true);
+            try {
+              await api.editWith(script.id, agent.id, what);
+              setChange("");
+              setShownRun(null);
+              setTab("run");
+            } catch (err: any) {
+              setMsg({ text: err.message, tone: "bad" });
+            } finally {
+              setAsking(false);
+            }
+          }}
+        >
+          <textarea
+            rows={1}
+            value={change}
+            aria-label={`Ask ${short(agent.name)} to change this script`}
+            placeholder={`Ask ${short(agent.name)} to change it…`}
+            onChange={(e) => {
+              setChange(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+          <button className="primary send-btn" type="submit" disabled={!change.trim() || asking} aria-label="Send" title="Send (Enter)">
+            <ArrowUp size={17} />
+          </button>
+        </form>
+      )}
     </aside>
   );
 }

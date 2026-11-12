@@ -5,7 +5,7 @@ import { Runs } from "./runs";
 import { Scheduler } from "./scheduler";
 import { scanWorkspace, type Project, type ScriptInfo } from "./scan";
 import { ensureWorkspace, createProject, createScript, seedExamples } from "./workspace";
-import { openInEditor } from "./launch";
+import { openInEditor, revealPath } from "./launch";
 import { agentCommand, detectAgents } from "./agents";
 import { aiClients, connectAiClient, ensureBridge, resyncAiClients } from "./ai-clients";
 import { insideWorkspace, parseEvery } from "./paths";
@@ -310,7 +310,9 @@ Task: ${instructions.trim() || "Improve this script."}
 Script file: ${file}
 ${isNew ? "It holds a placeholder: replace it with the real script." : "Change that file."}
 
-Give it a clear name, a one-line description in plain words, an icon, and form fields with labels (and units, like "Older than (days)") for anything a person would want to change.
+Keep it minimal: do exactly what was asked, plus only what the task clearly can't do without. No extra features, options or settings that weren't asked for.
+People want to run it right away, without setting anything up. Only add a form field for something that truly differs from run to run (like which folder), and give every field a sensible default so Run works straight away. Pick good values yourself instead of asking for them.
+${isNew ? "" : "Don't add new form fields or features unless the change asks for them.\n"}Give it a clear name, a one-line description in plain words, an icon, and plain labels on its fields (with units, like "Older than (days)").
 When it's written, if you have the yenae-script MCP tools (run_script, get_run), use them to run it once and check it works; fix it if not. If it needs an npm package, add it with \`bun add\` in the project folder.
 The person using this app may not be technical. Finish with one or two plain sentences saying what the script does now.
 `;
@@ -337,6 +339,12 @@ The person using this app may not be technical. Finish with one or two plain sen
 
   open(scriptId: string) {
     openInEditor(this.settings.workspace, insideWorkspace(this.settings.workspace, scriptId));
+  }
+
+  /** Shows the script's file in Explorer (or the system's file manager). */
+  reveal(scriptId: string) {
+    this.script(scriptId);
+    revealPath(insideWorkspace(this.settings.workspace, scriptId));
   }
 }
 

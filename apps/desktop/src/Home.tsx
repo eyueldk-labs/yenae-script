@@ -152,6 +152,7 @@ export function Home({
         },
       },
       "separator",
+      { label: "Show in folder", onSelect: () => api.reveal(id).catch(() => {}) },
       { heading: "For developers" },
       { label: "Open file", onSelect: () => api.open(id).catch(() => {}) },
       "separator",
