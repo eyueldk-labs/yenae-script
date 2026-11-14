@@ -46,6 +46,11 @@ export function normalizeLayout(raw: unknown, scriptIds: string[]): Layout {
     }
   }
   for (const id of [...scriptIds].sort()) if (!seen.has(id)) items.push({ type: "script", id });
-  const favourites = [...new Set((Array.isArray(src.favourites) ? src.favourites : []).filter((id) => typeof id === "string" && known.has(id)))];
-  return { favourites, items };
+  // Favourites are gone: scripts that were favourites move to the front instead, once.
+  const favs = [...new Set((Array.isArray(src.favourites) ? src.favourites : []).filter((id) => typeof id === "string" && known.has(id)))];
+  if (favs.length) {
+    const rank = (it: LayoutItem) => (it.type === "script" && favs.includes(it.id) ? favs.indexOf(it.id) : favs.length);
+    items.sort((a, b) => rank(a) - rank(b));
+  }
+  return { favourites: [], items };
 }

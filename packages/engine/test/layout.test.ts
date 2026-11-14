@@ -6,7 +6,13 @@ const ids = ["a.ts", "b.ts", "c.ts", "d.ts"];
 test("new scripts are added at the end, gone ones dropped", () => {
   const l = normalizeLayout({ favourites: ["c.ts", "gone.ts"], items: [{ type: "script", id: "c.ts" }, { type: "script", id: "gone.ts" }] }, ids);
   expect(l.items.map((i) => (i.type === "script" ? i.id : i.name))).toEqual(["c.ts", "a.ts", "b.ts", "d.ts"]);
-  expect(l.favourites).toEqual(["c.ts"]);
+  expect(l.favourites).toEqual([]);
+});
+
+test("old favourites move to the front, in their order", () => {
+  const l = normalizeLayout({ favourites: ["d.ts", "b.ts"], items: [{ type: "script", id: "a.ts" }, { type: "script", id: "b.ts" }, { type: "script", id: "c.ts" }, { type: "script", id: "d.ts" }] }, ids);
+  expect(l.items.map((i) => (i.type === "script" ? i.id : i.name))).toEqual(["d.ts", "b.ts", "a.ts", "c.ts"]);
+  expect(l.favourites).toEqual([]);
 });
 
 test("a script lives in one place; empty folders go away", () => {

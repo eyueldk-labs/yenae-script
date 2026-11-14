@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, Clock, Ellipsis, FolderOpen, FolderPlus, Pencil, Star } from "lucide-react";
+import { ChevronLeft, Clock, Ellipsis, FolderOpen, FolderPlus, Pencil } from "lucide-react";
 import type { Api, Layout, LayoutItem, ParamSpec, RunDetail, RunSummary, Script, State } from "./api";
 import { Glyph, hueOf } from "./icons";
 import { preferredHarness } from "./Dialogs";
@@ -7,7 +7,7 @@ import { Menu, type MenuEntry } from "./Menu";
 import { NewFolderDialog } from "./Dialogs";
 import { defaults, fmtValue, labelOf, splitUnit, startValues } from "./Form";
 import { fmtAgo, fmtEvery, fmtEveryShort, lastLabel, isLive } from "./fmt";
-import { folderOf, folderWith, foldersOf, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, toggleInFolder, ungroup, type Target } from "./layoutOps";
+import { folderOf, folderWith, foldersOf, moveFolder, moveScript, moveToFolder, renameFolder, toggleInFolder, ungroup, type Target } from "./layoutOps";
 
 type Folder = Extract<LayoutItem, { type: "folder" }>;
 type Badge = { kind: "failed" | "waiting" | "running" | "error"; text: string } | null;
@@ -94,12 +94,6 @@ export function Home({
     drag.current = null;
     setDrop(null);
     if (!d || d.id === ref) return;
-    if (inFav) {
-      // Dropped among favourites: make it one, at this spot.
-      let l = layout.favourites.includes(d.id) ? layout : toggleFavourite(layout, d.id);
-      onLayout(moveFavourite(l, d.id, ref, kind as "before" | "after"));
-      return;
-    }
     if (d.folder) {
       if (!refIsFolder && folderOf(layout, ref)) return;
       onLayout(moveFolder(layout, d.id, kind as "before" | "after", ref));
@@ -123,27 +117,23 @@ export function Home({
       setDrop(null);
       if (!d) return;
       e.preventDefault();
-      if (container === "fav") {
-        if (!d.folder) onLayout(moveFavourite(layout.favourites.includes(d.id) ? layout : toggleFavourite(layout, d.id), d.id, null));
-      } else if (!d.folder && !d.fav) onLayout(moveScript(layout, d.id, { kind: "end", container: container === "items" ? "items" : container }, d.from).layout);
+      if (!d.folder && !d.fav) onLayout(moveScript(layout, d.id, { kind: "end", container: container === "items" ? "items" : container }, d.from).layout);
     },
   });
 
   // ---- context menu ----
   const scriptMenu = (id: string): MenuEntry[] => {
     const s = byId.get(id)!;
-    const fav = layout.favourites.includes(id);
     const folders = layout.items.filter((i): i is Folder => i.type === "folder");
     return [
       { label: "Open", onSelect: () => onOpen(id, true) },
       { label: state.lastRuns[id] ? "Run again" : "Run", hint: Object.keys(s.params).length ? "same values" : "", onSelect: () => onRun(id), disabled: !!s.error },
-      { label: fav ? "Remove from favourites" : "Add to favourites", onSelect: () => onLayout(toggleFavourite(layout, id)) },
       { label: "Edit…", onSelect: () => onEdit(id) },
       "separator",
-      { heading: "In folders" },
+      { heading: "In groups" },
       ...folders.map((f) => ({ label: f.name, checked: f.scripts.includes(id), onSelect: () => onLayout(toggleInFolder(layout, id, f.id)) })),
       {
-        label: "New folder…",
+        label: "New group…",
         onSelect: () => {
           const { layout: next, created } = folderWith(layout, id);
           onLayout(next);
@@ -178,7 +168,6 @@ export function Home({
     const b = badge(s);
     const inFav = where === "fav";
     const d = drop && drop.ref === id && (inFav ? drop.kind !== "into" : true) ? drop.kind : "";
-    const fav = layout.favourites.includes(id);
     const sched = state.schedules.find((x) => x.script === id && x.enabled);
     return (
       // The card is a container: one big button opens the script, and a star and a menu
@@ -219,7 +208,7 @@ export function Home({
           data-tile
           data-id={id}
           data-where={where}
-          aria-label={[s.name, b?.text, fav && !inFav ? "favourite" : "", sched ? `runs every ${fmtEvery(sched.every)}` : ""].filter(Boolean).join(", ")}
+          aria-label={[s.name, b?.text, sched ? `runs every ${fmtEvery(sched.every)}` : ""].filter(Boolean).join(", ")}
           aria-description={s.description}
           aria-current={selected === id ? "true" : undefined}
           onClick={(e) => onOpen(id, e.detail === 0)}
@@ -255,15 +244,6 @@ export function Home({
         {b?.kind === "running" && <span className="run-bar" aria-hidden />}
         <span className="card-actions">
           <button
-            className={`ib star-btn ${fav ? "on-fav" : ""}`}
-            aria-pressed={fav}
-            title={fav ? "Remove from favourites" : "Add to favourites"}
-            aria-label={`${fav ? "Remove" : "Add"} ${s.name} ${fav ? "from" : "to"} favourites`}
-            onClick={() => onLayout(toggleFavourite(layout, id))}
-          >
-            <Star size={15} fill={fav ? "currentColor" : "none"} aria-hidden />
-          </button>
-          <button
             className="ib"
             title="More"
             aria-label={`More for ${s.name}`}
@@ -293,7 +273,7 @@ export function Home({
         data-id={f.id}
         draggable
         aria-expanded={openFolder === f.id}
-        aria-label={`${f.name} folder, ${kids.length} script${kids.length === 1 ? "" : "s"}${worst ? `, ${worst.text.toLowerCase()}` : ""}`}
+        aria-label={`${f.name} group, ${kids.length} script${kids.length === 1 ? "" : "s"}${worst ? `, ${worst.text.toLowerCase()}` : ""}`}
         onClick={() => toggleFolder(openFolder === f.id ? null : f.id, f.id)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -346,7 +326,7 @@ export function Home({
     );
   };
 
-  /** Put focus back on a tile after a re-render (the same copy, when a favourite shows twice). */
+  /** Put focus back on a tile after a re-render. */
   const refocus = (id: string, where?: string) =>
     requestAnimationFrame(() =>
       document.querySelector<HTMLElement>(`.home [data-tile][data-id="${CSS.escape(id)}"]${where ? `[data-where="${CSS.escape(where)}"]` : ""}`)?.focus(),
@@ -358,15 +338,10 @@ export function Home({
     else if (focusId) refocus(focusId);
   };
 
-  // Alt+Left/Right moves a script one place within its row of tiles (favourites, a folder, or the top level).
+  // Alt+Left/Right moves a script one place within its row of tiles (a folder, or the top level).
   const nudge = (id: string, where: string, d: -1 | 1) => {
     let next: Layout = layout;
-    if (where === "fav") {
-      const i = layout.favourites.indexOf(id);
-      const ref = layout.favourites[i + d];
-      if (!ref) return;
-      next = moveFavourite(layout, id, ref, d < 0 ? "before" : "after");
-    } else {
+    {
       const f = layout.items.find((i) => i.type === "folder" && i.id === where) as Folder | undefined;
       const list = f ? f.scripts : layout.items.map((i) => i.id);
       const ref = list[list.indexOf(id) + d];
@@ -406,9 +381,9 @@ export function Home({
     <input
       className="rename"
       autoFocus
-      defaultValue={f.name === "New folder" ? "" : f.name}
-      placeholder="Folder name"
-      aria-label="Folder name"
+      defaultValue={f.name === "New group" || f.name === "New folder" ? "" : f.name}
+      placeholder="Group name"
+      aria-label="Group name"
       onFocus={(e) => e.currentTarget.select()}
       onBlur={(e) => {
         onLayout(renameFolder(layout, f.id, e.currentTarget.value || f.name));
@@ -454,17 +429,14 @@ export function Home({
       }}
     >
       <FolderPlus size={16} aria-hidden />
-      New folder
+      New group
     </button>
   );
 
   // ---- views ----
   // ---- views ----
   const noScripts = state.scripts.length === 0;
-  const favs = layout.favourites.filter((id) => byId.has(id));
-  // Favourites are shortcuts: the script also stays in its usual place.
-  // A favourite moves up to Favourites instead of showing twice (inside a folder it stays too).
-  const shown = layout.items.filter((i) => i.type === "folder" || !layout.favourites.includes(i.id));
+  const shown = layout.items;
   const openF = layout.items.find((i): i is Folder => i.type === "folder" && i.id === openFolder) ?? null;
 
   return (
@@ -526,7 +498,7 @@ export function Home({
               <div className="folder-title">
                 {renaming === openF.id ? renameBox(openF) : <h2 className="sec">{openF.name}</h2>}
                 {renaming !== openF.id && (
-                  <button className="ib" title="Rename folder" aria-label="Rename folder" onClick={() => setRenaming(openF.id)}>
+                  <button className="ib" title="Rename group" aria-label="Rename group" onClick={() => setRenaming(openF.id)}>
                     <Pencil size={16} aria-hidden />
                   </button>
                 )}
@@ -537,21 +509,9 @@ export function Home({
             </section>
           ) : (
           <>
-          <section {...dropZoneProps("fav")}>
-            <h2 className="sec">
-              <Star size={13} fill="currentColor" className="fav" /> Favourites
-            </h2>
-            {favs.length ? (
-              <div className="tiles" data-tiles>
-                {favs.map((id) => scriptTile(id, "fav"))}
-              </div>
-            ) : (
-              <p className="drop-hint muted small">Star a script to keep it here.</p>
-            )}
-          </section>
           <section {...dropZoneProps("items")}>
-            <h2 className="sec">{favs.length ? "Other scripts" : "Scripts"}</h2>
-            {/* Folders first, as a row of chips ending in "New folder", then loose scripts. */}
+            <h2 className="sec">Scripts</h2>
+            {/* Folders first, as a row of chips ending in "New group", then loose scripts. */}
             {(shown.some((it) => it.type === "folder") || state.scripts.length > 1) && (
               <div className="folders" data-tiles>
                 {shown.map((it) => (it.type === "folder" ? folderTile(it) : null))}
@@ -584,7 +544,7 @@ export function Home({
         <Menu
           x={menu.x}
           y={menu.y}
-          label={menu.folder ? "Folder" : "Script"}
+          label={menu.folder ? "Group" : "Script"}
           items={menu.folder ? folderMenu(menu.id) : scriptMenu(menu.id)}
           onClose={() => setMenu(null)}
         />

@@ -607,3 +607,8 @@ code.block { display: block; padding: 6px 8px; background: var(--code); border-r
 .ask-bar textarea { flex: 1; min-width: 0; resize: none; min-height: 38px; max-height: 120px; padding: 8px 12px; border-radius: 19px; line-height: 1.4; }
 .ask-bar .send-btn { width: 38px; height: 38px; padding: 0; border-radius: 50%; display: grid; place-items: center; flex: none; }
 @media (max-width: 760px) { .ask-bar { padding: 10px 16px 14px; } }
+
+/* "Run when my computer starts", under the schedule. */
+.startup-check { align-items: flex-start; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); width: 100%; }
+.startup-check input { margin-top: 2px; }
+.block { display: block; }

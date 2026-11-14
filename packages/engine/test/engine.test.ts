@@ -164,3 +164,29 @@ test("delete moves a script to the trash; restore puts it back with its schedule
   expect(engine.state().scripts.some((s: any) => s.id === id)).toBe(true);
   expect(engine.store.schedules().find((s) => s.script === id)?.enabled).toBe(true);
 }, 30_000);
+
+test("startup scripts run once after the computer starts, not after an app restart", async () => {
+  const data = join(dir, "data");
+  engine.setStartup("p/scripts/sub/plain.ts", true, {});
+  expect(engine.state().startup).toEqual(["p/scripts/sub/plain.ts"]);
+
+  // Same boot: an engine restart doesn't run it.
+  const e2 = new Engine(data, { workspace: join(dir, "ws"), port: 0 }, { examples: false });
+  e2.start();
+  await e2.scanning;
+  await Bun.sleep(300);
+  expect(e2.store.listRuns("p/scripts/sub/plain.ts", 50).filter((r) => r.source === "startup").length).toBe(0);
+  e2.stop();
+
+  // A new boot (pretend the last one was long ago): it runs.
+  const f = join(data, "startup.json");
+  const v = JSON.parse(await Bun.file(f).text());
+  writeFileSync(f, JSON.stringify({ ...v, boot: 1 }));
+  const e3 = new Engine(data, { workspace: join(dir, "ws"), port: 0 }, { examples: false });
+  e3.start();
+  for (let i = 0; i < 50 && e3.store.listRuns("p/scripts/sub/plain.ts", 50).filter((r) => r.source === "startup").length === 0; i++) await Bun.sleep(100);
+  expect(e3.store.listRuns("p/scripts/sub/plain.ts", 50).filter((r) => r.source === "startup").length).toBe(1);
+  e3.stop();
+  engine.setStartup("p/scripts/sub/plain.ts", false);
+  expect(engine.state().startup).toEqual([]);
+});

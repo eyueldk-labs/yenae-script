@@ -55,7 +55,7 @@ export interface RunSummary {
   id: string;
   script: string;
   params: Record<string, unknown>;
-  source: "manual" | "schedule" | "mcp" | "agent";
+  source: "manual" | "schedule" | "mcp" | "agent" | "startup";
   status: RunStatus;
   exitCode: number | null;
   error: string | null;
@@ -98,6 +98,8 @@ export interface State {
   lastRuns: Record<string, RunSummary>;
   layout: Layout;
   harnesses: Harness[];
+  /** Scripts that run when the computer starts. */
+  startup: string[];
   platform: string;
 }
 
@@ -198,6 +200,7 @@ export class Api {
   connectAi = (id: string) => this.req<import("./AiConnect").AiClient[]>("/api/ai/connect", { id });
   open = (script: string) => this.req("/api/open", { script });
   reveal = (script: string) => this.req("/api/reveal", { script });
+  setStartup = (script: string, on: boolean, params: Record<string, unknown>) => this.req("/api/startup", { script, on, params });
 
   listen(onMsg: (m: ServerMsg) => void, onStatus: (up: boolean) => void) {
     let ws: WebSocket | null = null;

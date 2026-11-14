@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronLeft, ChevronRight, Ellipsis, Pencil, Star, X } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Ellipsis, Pencil, X } from "lucide-react";
 import type { Api, Layout, LayoutItem, RunDetail, RunSummary, Script, State } from "./api";
 import { folderWith, toggleInFolder } from "./layoutOps";
 import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, splitUnit, startValues } from "./Form";
@@ -27,11 +27,9 @@ export function Panel({
   runs,
   setRuns,
   opening,
-  favourite,
   layout,
   onLayout,
   wide,
-  onFavourite,
   onWide,
   onClose,
   onEdit,
@@ -43,11 +41,9 @@ export function Panel({
   runs: Record<string, RunDetail>;
   setRuns: React.Dispatch<React.SetStateAction<Record<string, RunDetail>>>;
   opening: Opening;
-  favourite: boolean;
   layout: Layout;
   onLayout: (l: Layout) => void;
   wide: boolean;
-  onFavourite: () => void;
   onWide: () => void;
   onClose: () => void;
   /** Opens the Edit window: "ask" with a change already described, or "code". */
@@ -201,11 +197,11 @@ export function Panel({
   const menuItems: MenuEntry[] = [
     { label: "Edit…", onSelect: () => onEdit() },
     "separator",
-    { heading: "In folders" },
+    { heading: "In groups" },
     ...layout.items
       .filter((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder")
       .map((f) => ({ label: f.name, checked: f.scripts.includes(script.id), onSelect: () => onLayout(toggleInFolder(layout, script.id, f.id)) })),
-    { label: "New folder…", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
+    { label: "New group…", onSelect: () => onLayout(folderWith(layout, script.id).layout) },
     "separator",
     { label: "Show in folder", onSelect: () => api.reveal(script.id).catch((e) => setMsg({ text: e.message, tone: "bad" })) },
     { heading: "For developers" },
@@ -335,9 +331,6 @@ export function Panel({
           <h2 className="grow">{script.name}</h2>
           <button className="ib" title="Edit" aria-label="Edit" onClick={() => onEdit()}>
             <Pencil size={16} />
-          </button>
-          <button className={`ib ${favourite ? "fav" : ""}`} aria-pressed={favourite} title={favourite ? "Remove from favourites" : "Add to favourites"} onClick={onFavourite}>
-            <Star size={17} fill={favourite ? "currentColor" : "none"} />
           </button>
           <button
             className="ib"
@@ -561,6 +554,7 @@ export function Panel({
             schedule={schedule}
             last={schedLast}
             values={values}
+            atStartup={state.startup.includes(script.id)}
             onMissing={(keys) => {
               setTab("run");
               setInvalid(keys);

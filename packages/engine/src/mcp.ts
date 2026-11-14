@@ -75,13 +75,13 @@ export function mcpTools(engine: Engine): Tool[] {
     {
       name: "read_file",
       description: "Read a file in the workspace. Path is relative to the workspace root.",
-      inputSchema: obj({ path: str("e.g. my-project/scripts/hello.ts") }, ["path"]),
+      inputSchema: obj({ path: str("e.g. my-package/scripts/hello.ts") }, ["path"]),
       call: ({ path }) => readFileSync(insideWorkspace(engine.settings.workspace, path), "utf8"),
     },
     {
       name: "write_file",
       description:
-        "Create or overwrite a file in the workspace. Scripts go in <project>/scripts/. Create the project first with create_project.",
+        "Create or overwrite a file in the workspace. Scripts go in <package>/scripts/. A new script usually gets its own package: create it first with create_package.",
       inputSchema: obj({ path: str("Workspace-relative path"), content: str("Full file content") }, ["path", "content"]),
       call: async ({ path, content }) => {
         if (/(^|[\\/])(node_modules|\.yenae)([\\/]|$)/.test(path)) throw new Error("That folder is managed by the app.");
@@ -94,10 +94,10 @@ export function mcpTools(engine: Engine): Tool[] {
       },
     },
     {
-      name: "create_project",
-      description: "Create a project: a folder with package.json and scripts/. Returns its folder name.",
-      inputSchema: obj({ name: str("Project name, e.g. chrome-tools") }, ["name"]),
-      call: async ({ name }) => ({ project: await engine.newProject(name) }),
+      name: "create_package",
+      description: "Create a package: a folder with its own package.json and scripts/. Returns its folder name.",
+      inputSchema: obj({ name: str("Package name, e.g. chrome-tools") }, ["name"]),
+      call: async ({ name }) => ({ package: await engine.newProject(name) }),
     },
     {
       name: "run_script",

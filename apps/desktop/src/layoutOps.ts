@@ -98,7 +98,7 @@ export function moveScript(layout: Layout, id: string, target: Target, from?: st
   }
   if (target.kind === "into") {
     const created = newFolderId();
-    l.items[si] = { type: "folder", id: created, name: "New folder", scripts: [ref, id] };
+    l.items[si] = { type: "folder", id: created, name: "New group", scripts: [ref, id] };
     return { layout: l, created };
   }
   l.items.splice(target.kind === "before" ? si : si + 1, 0, { type: "script", id });
@@ -143,7 +143,7 @@ export function toggleInFolder(layout: Layout, id: string, folderId: string): La
 }
 
 /** Make a folder holding one script, where that script was. */
-export function folderWith(layout: Layout, id: string, name = "New folder"): { layout: Layout; created: string } {
+export function folderWith(layout: Layout, id: string, name = "New group"): { layout: Layout; created: string } {
   const l = clone(layout);
   const created = newFolderId();
   const si = l.items.findIndex((i) => i.type === "script" && i.id === id);
@@ -167,22 +167,5 @@ export function ungroup(layout: Layout, folderId: string): Layout {
   if (at < 0) return layout;
   const f = l.items[at] as Folder;
   l.items.splice(at, 1, ...f.scripts.map((id) => ({ type: "script" as const, id })));
-  return l;
-}
-
-export function toggleFavourite(layout: Layout, id: string): Layout {
-  const l = clone(layout);
-  l.favourites = l.favourites.includes(id) ? l.favourites.filter((x) => x !== id) : [...l.favourites, id];
-  return l;
-}
-
-/** Reorder favourites: put `id` before `ref` (or at the end). */
-export function moveFavourite(layout: Layout, id: string, ref: string | null, kind: "before" | "after" = "before"): Layout {
-  const l = clone(layout);
-  l.favourites = l.favourites.filter((x) => x !== id);
-  let at = ref ? l.favourites.indexOf(ref) : -1;
-  if (at < 0) at = l.favourites.length;
-  else if (kind === "after") at++;
-  l.favourites.splice(at, 0, id);
   return l;
 }

@@ -9,13 +9,14 @@ const SDK_VERSION = "0.1.0";
 
 export const AGENTS_MD = `# Yenae Script workspace
 
-Each folder with a \`package.json\` is a project: one npm package holding related scripts.
-Scripts are TypeScript files under the project's \`scripts/\` folder. Sub-folders group them.
+Each folder with a \`package.json\` is a package: its own npm package, holding one or more scripts.
+A new script usually gets a package of its own. Scripts are TypeScript files under the package's
+\`scripts/\` folder. (How scripts are grouped in the app's launcher is separate, and kept by the app.)
 Put shared code in \`lib/\` (never listed as scripts). Files starting with \`_\` are skipped too.
 
 \`\`\`
-my-project/
-  package.json        # dependencies for every script in this project
+my-package/
+  package.json        # npm packages for the scripts in this package
   scripts/
     hello.ts          # one script
     backups/nightly.ts
@@ -63,8 +64,8 @@ export default defineScript({
 - Show results: \`show.text\`, \`show.markdown\`, \`show.table(rows)\`.
 - Keep all work inside \`run\`. The app imports the file to read its params, so top-level code runs then too.
 - A file without \`defineScript\` is a plain script: it runs top to bottom with no form.
-- Add npm packages with \`bun add <pkg>\` inside the project. The app installs them when package.json changes.
-- Scripts run with Bun, with the project folder as the working directory.
+- Add npm packages with \`bun add <pkg>\` inside the package. The app installs them when package.json changes.
+- Scripts run with Bun, with the package folder as the working directory.
 - Run one outside the app: \`bun scripts/hello.ts --name=value\`.
 
 ## Tools for agents
@@ -191,9 +192,9 @@ export default defineScript({
 
 export function createProject(workspace: string, name: string): string {
   const slug = slugify(name);
-  if (!slug) throw new Error("Give the project a name.");
+  if (!slug) throw new Error("Give the package a name.");
   const dir = insideWorkspace(workspace, slug);
-  if (existsSync(join(dir, "package.json"))) throw new Error(`Project "${slug}" already exists.`);
+  if (existsSync(join(dir, "package.json"))) throw new Error(`Package "${slug}" already exists.`);
   mkdirSync(join(dir, "scripts"), { recursive: true });
   writeFileSync(
     join(dir, "package.json"),

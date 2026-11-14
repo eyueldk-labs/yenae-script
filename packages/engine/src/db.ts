@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 export type RunStatus = "running" | "waiting" | "ok" | "failed" | "stopped";
 /** "agent": a coding agent writing or changing the script (see agents.ts). */
-export type RunSource = "manual" | "schedule" | "mcp" | "agent";
+export type RunSource = "manual" | "schedule" | "mcp" | "agent" | "startup";
 
 export type RunEvent =
   | { t: "out" | "err"; text: string; at: number }

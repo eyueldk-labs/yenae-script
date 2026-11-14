@@ -116,13 +116,13 @@ export function NewScriptDialog({
 }) {
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
-  const [project, setProject] = useState(state.projects[0]?.id ?? "");
-  const [newProject, setNewProject] = useState(state.projects.length === 0 ? "my-scripts" : "");
+  // Each new script gets its own package by default ("" here); it can join an existing one.
+  const [project, setProject] = useState("");
   const [file, setFile] = useState("");
   const [harness, setHarness] = useState(preferredHarness(state.harnesses)?.id ?? "");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const creatingProject = project === "" || state.projects.length === 0;
+  const creatingProject = project === "";
   const agent = state.harnesses.find((h) => h.id === harness);
   // The file name follows the name unless the user typed one under "More options".
   const fileName = file.trim() || name.trim();
@@ -132,7 +132,13 @@ export function NewScriptDialog({
     setErr(null);
     try {
       let p = project;
-      if (creatingProject) p = (await api.newProject(newProject || "my-scripts")).id;
+      if (creatingProject) {
+        // Named after the script; a number is added if that package already exists.
+        const base = fileName.toLowerCase().replace(/\.[^.]+$/, "").replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "my-script";
+        let slug = base;
+        for (let n = 2; state.projects.some((x) => x.id === slug); n++) slug = `${base}-${n}`;
+        p = (await api.newProject(slug)).id;
+      }
       if (agent) store.setHarness(agent.id);
       const { id } = await api.newScript(p, fileName, what, agent?.id);
       onCreated(id);
@@ -188,21 +194,20 @@ export function NewScriptDialog({
                 </select>
               </div>
             )}
-            <div className="field">
-              <label htmlFor="ns-project">Group</label>
-              <select id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
-                {state.projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.id}
-                  </option>
-                ))}
-                <option value="">New group…</option>
-              </select>
-              {creatingProject && (
-                <input aria-label="New group name" placeholder="Group name" value={newProject} onChange={(e) => setNewProject(e.target.value)} />
-              )}
-              <div className="hint">Where the script is kept, inside your scripts folder.</div>
-            </div>
+            {state.projects.length > 0 && (
+              <div className="field">
+                <label htmlFor="ns-project">Package</label>
+                <select id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
+                  <option value="">Its own package</option>
+                  {state.projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.id}
+                    </option>
+                  ))}
+                </select>
+                <div className="hint">A package is a folder in your scripts folder. Scripts in one package share the npm packages they use.</div>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="ns-file">File name</label>
               <input id="ns-file" placeholder={name ? `${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}.ts` : "Made from the name"} value={file} onChange={(e) => setFile(e.target.value)} />
@@ -610,12 +615,12 @@ export function NewFolderDialog({
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   return (
-    <Dialog title="New folder" onClose={onClose}>
+    <Dialog title="New group" onClose={onClose}>
       <form
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (picked.length) onCreate(name.trim() || "New folder", picked);
+          if (picked.length) onCreate(name.trim() || "New group", picked);
         }}
       >
         <div className="field">
@@ -640,7 +645,7 @@ export function NewFolderDialog({
             Cancel
           </button>
           <button type="submit" className="primary" disabled={!picked.length}>
-            Make folder
+            Make group
           </button>
         </div>
       </form>

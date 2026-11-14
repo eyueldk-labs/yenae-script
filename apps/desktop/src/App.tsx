@@ -7,7 +7,6 @@ import { ConfirmDeleteDialog, EditScriptDialog, NewScriptDialog, SettingsDialog,
 import { Home, attentionOf } from "./Home";
 import { Panel, type Opening } from "./Panel";
 import { isLive } from "./fmt";
-import { toggleFavourite } from "./layoutOps";
 import { store } from "./store";
 import { setHueIds } from "./icons";
 import { applyUpdate, dismissWhatsNew, noteLines, reportUiReady, useUpdateStatus } from "./updates";
@@ -147,15 +146,24 @@ export function App() {
     import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_attention", { count: attention.needs.length })).catch(() => {});
   }, [attention.needs.length]);
 
-  // Favourites are also in the tray's right-click menu, to run without opening the window.
-  const trayFavs = state ? JSON.stringify(state.layout.favourites.flatMap((id) => {
-    const s = state.scripts.find((x) => x.id === id);
-    return s ? [{ id, name: s.name }] : [];
-  })) : "";
+  // The tray's right-click menu has Scripts, laid out like the home screen, to run one without opening the window.
+  const trayItems = state
+    ? JSON.stringify(
+        // Folders first, then loose scripts, as on the home screen.
+        [...state.layout.items.filter((i) => i.type === "folder"), ...state.layout.items.filter((i) => i.type === "script")].flatMap((it): unknown[] => {
+          const named = (id: string) => {
+            const s = state.scripts.find((x) => x.id === id);
+            return s ? [{ id, name: s.name }] : [];
+          };
+          if (it.type === "script") return named(it.id).map((s) => ({ type: "script", ...s }));
+          return [{ type: "folder", name: it.name, scripts: it.scripts.flatMap(named) }];
+        }),
+      )
+    : "";
   useEffect(() => {
     if (!isTauri() || !state) return;
-    import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_tray_favourites", { favourites: JSON.parse(trayFavs) }).catch(() => {}));
-  }, [trayFavs]);
+    import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_tray_scripts", { items: JSON.parse(trayItems) }).catch(() => {}));
+  }, [trayItems]);
   const quickRunRef = useRef<(id: string, fromTray?: boolean) => void>(() => {});
   useEffect(() => {
     if (!isTauri()) return;
@@ -509,11 +517,9 @@ export function App() {
           runs={runs}
           setRuns={setRuns}
           opening={opening}
-          favourite={state.layout.favourites.includes(script.id)}
           layout={state.layout}
           onLayout={saveLayout}
           wide={wide}
-          onFavourite={() => saveLayout(toggleFavourite(state.layout, script.id))}
           onWide={() => setWide((w) => !w)}
           onClose={close}
           onEdit={(tab, text) => setEditing({ id: script.id, tab, text })}

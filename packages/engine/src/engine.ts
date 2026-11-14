@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { uptime } from "node:os";
 import { Store, type ScheduleRow } from "./db";
 import { Runs } from "./runs";
 import { Scheduler } from "./scheduler";
@@ -93,6 +94,58 @@ export class Engine {
   start() {
     this.openWorkspace();
     this.scheduler.start();
+    this.runAtStartup().catch(() => {});
+  }
+
+  // ---- run when the computer starts ----
+  private get startupPath() {
+    return join(this.dataDir, "startup.json");
+  }
+  private readStartup(): { scripts: Record<string, Record<string, unknown>>; boot: number } {
+    try {
+      const v = JSON.parse(readFileSync(this.startupPath, "utf8"));
+      return { scripts: v.scripts ?? {}, boot: v.boot ?? 0 };
+    } catch {
+      return { scripts: {}, boot: 0 };
+    }
+  }
+  private writeStartup(v: { scripts: Record<string, Record<string, unknown>>; boot: number }) {
+    writeFileSync(this.startupPath, JSON.stringify(v, null, 2));
+  }
+
+  /** Scripts that run once each time the computer starts, with the values they were set up with. */
+  startupScripts() {
+    return Object.keys(this.readStartup().scripts);
+  }
+
+  setStartup(script: string, on: boolean, params: Record<string, unknown> = {}) {
+    if (on) this.script(script);
+    const v = this.readStartup();
+    if (on) v.scripts[script] = params;
+    else delete v.scripts[script];
+    // Turning one on now counts this start as done, so it doesn't run straight away.
+    if (!v.boot) v.boot = bootTime();
+    this.writeStartup(v);
+    for (const l of this.changeListeners) l();
+  }
+
+  /**
+   * The first time the engine starts after the computer did (not after an app restart or an
+   * update), runs the startup scripts.
+   */
+  private async runAtStartup() {
+    const v = this.readStartup();
+    const boot = bootTime();
+    // Boot time read twice can differ by a second or two.
+    if (Math.abs(boot - v.boot) < 120_000) return;
+    this.writeStartup({ ...v, boot });
+    await this.scanning?.catch(() => {});
+    for (const [script, params] of Object.entries(v.scripts)) {
+      if (!this.scripts.some((x) => x.id === script) || this.runs.isRunning(script)) continue;
+      try {
+        this.run(script, params, "startup");
+      } catch {}
+    }
   }
 
   stop() {
@@ -136,7 +189,7 @@ export class Engine {
 
   script(id: string): ScriptInfo {
     const s = this.scripts.find((x) => x.id === id || x.id === id.replace(/\\/g, "/"));
-    if (!s) throw new Error(`No script "${id}". Scripts live in <project>/scripts/.`);
+    if (!s) throw new Error(`No script "${id}". Scripts live in <package>/scripts/.`);
     return s;
   }
 
@@ -181,6 +234,7 @@ export class Engine {
       recent: this.store.listRuns(undefined, 12).map((r) => (this.runs.live.has(r.id) ? summarize(this.runs.get(r.id)!) : r)),
       live: [...this.runs.live.keys()].map((id) => this.runs.get(id)),
       harnesses: detectAgents(),
+      startup: this.startupScripts(),
       platform: process.platform,
     };
   }
@@ -236,12 +290,14 @@ export class Engine {
     for (const r of [...this.runs.live.values()]) if (r.script === scriptId) this.runs.stop(r.id);
     const schedule = this.store.schedules().find((x) => x.script === scriptId) ?? null;
     if (schedule?.enabled) this.scheduler.set(scriptId, schedule.every, schedule.params, false);
+    const startup = this.readStartup().scripts[scriptId] ?? null;
+    if (startup) this.setStartup(scriptId, false);
     const trashId = String(Date.now());
     const dir = join(this.trashDir, trashId);
     const dest = join(dir, "files", scriptId);
     mkdirSync(dirname(dest), { recursive: true });
     renameSync(insideWorkspace(this.settings.workspace, scriptId), dest);
-    writeFileSync(join(dir, "meta.json"), JSON.stringify({ script: scriptId, schedule, layout: this.layout() }, null, 2));
+    writeFileSync(join(dir, "meta.json"), JSON.stringify({ script: scriptId, schedule, startup, layout: this.layout() }, null, 2));
     await this.rescan();
     return trashId;
   }
@@ -250,7 +306,7 @@ export class Engine {
   async restoreScript(trashId: string) {
     if (!/^\d+$/.test(trashId)) throw new Error("Nothing to restore.");
     const dir = join(this.trashDir, trashId);
-    const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as { script: string; schedule: ScheduleRow | null; layout: Layout };
+    const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as { script: string; schedule: ScheduleRow | null; startup?: Record<string, unknown> | null; layout: Layout };
     const target = insideWorkspace(this.settings.workspace, meta.script);
     if (existsSync(target)) throw new Error("A script with that name exists again, so it can't be put back.");
     mkdirSync(dirname(target), { recursive: true });
@@ -258,6 +314,7 @@ export class Engine {
     rmSync(dir, { recursive: true, force: true });
     await this.rescan();
     if (meta.schedule?.enabled) this.scheduler.set(meta.script, meta.schedule.every, meta.schedule.params, true);
+    if (meta.startup) this.setStartup(meta.script, true, meta.startup);
     this.saveLayout(meta.layout);
     return meta.script;
   }
@@ -313,7 +370,7 @@ ${isNew ? "It holds a placeholder: replace it with the real script." : "Change t
 Keep it minimal: do exactly what was asked, plus only what the task clearly can't do without. No extra features, options or settings that weren't asked for.
 People want to run it right away, without setting anything up. Only add a form field for something that truly differs from run to run (like which folder), and give every field a sensible default so Run works straight away. Pick good values yourself instead of asking for them.
 ${isNew ? "" : "Don't add new form fields or features unless the change asks for them.\n"}Give it a clear name, a one-line description in plain words, an icon, and plain labels on its fields (with units, like "Older than (days)").
-When it's written, if you have the yenae-script MCP tools (run_script, get_run), use them to run it once and check it works; fix it if not. If it needs an npm package, add it with \`bun add\` in the project folder.
+When it's written, if you have the yenae-script MCP tools (run_script, get_run), use them to run it once and check it works; fix it if not. If it needs an npm package, add it with \`bun add\` in the script's package folder.
 The person using this app may not be technical. Finish with one or two plain sentences saying what the script does now.
 `;
     const { agent, argv, stdin } = agentCommand(harness, this.settings.workspace, prompt);
@@ -346,6 +403,11 @@ The person using this app may not be technical. Finish with one or two plain sen
     this.script(scriptId);
     revealPath(insideWorkspace(this.settings.workspace, scriptId));
   }
+}
+
+/** When the computer last started (ms since 1970). */
+function bootTime() {
+  return Date.now() - uptime() * 1000;
 }
 
 function summarize(r: RunSummary & { events?: unknown; pendingAsk?: unknown }): RunSummary & { pendingAsk?: unknown } {

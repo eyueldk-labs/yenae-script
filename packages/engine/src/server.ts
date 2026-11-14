@@ -95,6 +95,9 @@ export function serve(engine: Engine) {
           case "/api/run/answer":
             engine.runs.answer(body.run, body.id, body.value);
             return json(req, { ok: true });
+          case "/api/startup":
+            engine.setStartup(body.script, !!body.on, body.params ?? {});
+            return json(req, { ok: true });
           case "/api/schedule":
             return json(req, engine.setSchedule(body.script, body.every, body.params ?? {}, !!body.enabled));
           case "/api/layout":

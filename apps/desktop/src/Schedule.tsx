@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Api, RunSummary, Schedule, Script } from "./api";
+import { isTauri, type Api, type RunSummary, type Schedule, type Script } from "./api";
 import { ParamForm, fmtValue, labelOf, missing } from "./Form";
 import { STATUS, fmtAgo, fmtEvery, fmtWhen, isLive } from "./fmt";
 
@@ -16,6 +16,7 @@ export function SchedulePanel({
   values,
   onShowRun,
   onMissing,
+  atStartup,
 }: {
   api: Api;
   script: Script;
@@ -26,6 +27,8 @@ export function SchedulePanel({
   values: Record<string, unknown>;
   onShowRun: (id: string) => void;
   onMissing: (keys: string[]) => void;
+  /** Runs once each time the computer starts. */
+  atStartup: boolean;
 }) {
   const on = !!schedule?.enabled;
   const [every, setEvery] = useState(schedule?.every ?? script.schedule?.every ?? "1h");
@@ -65,6 +68,7 @@ export function SchedulePanel({
   const shownValues = on ? schedule!.params : values;
   // Required values the Run tab is still missing: a schedule can't start without them.
   const needs = on ? [] : missing(script.params, values);
+  const needsForStartup = missing(script.params, values);
 
   // Intervals in words; anything else stays possible under "Other…".
   const presets: [string, string][] = [
@@ -224,6 +228,35 @@ export function SchedulePanel({
           )}
         </section>
       )}
+
+      <label className="check startup-check">
+        <input
+          type="checkbox"
+          checked={atStartup}
+          disabled={busy || (!atStartup && (!!script.error || needsForStartup.length > 0))}
+          onChange={async (e) => {
+            const turnOn = e.target.checked;
+            setBusy(true);
+            try {
+              await api.setStartup(script.id, turnOn, values);
+              // It only runs if the app opens at sign-in, so make sure it does.
+              if (turnOn && isTauri()) {
+                const a = await import("@tauri-apps/plugin-autostart");
+                if (!(await a.isEnabled())) await a.enable();
+              }
+              setErr(null);
+            } catch (err: any) {
+              setErr(err.message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+        <span>
+          Run when my computer starts
+          <span className="muted small block">{needsForStartup.length && !atStartup ? `Fill in ${needsForStartup.map((k) => labelOf(k, script.params[k]!)).join(", ")} on the Run tab first.` : "Once each time you sign in, with the Run tab's values."}</span>
+        </span>
+      </label>
 
       {err && (
         <div className="msg bad" role="alert">

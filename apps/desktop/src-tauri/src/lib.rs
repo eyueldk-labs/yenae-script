@@ -46,17 +46,33 @@ struct Engine {
     failed: Mutex<Option<String>>,
 }
 
-/// The tray's right-click menu: favourite scripts to run in one click, then Show and Quit.
-fn tray_menu(app: &AppHandle, favourites: &[TrayScript]) -> tauri::Result<Menu<tauri::Wry>> {
-    use tauri::menu::{IsMenuItem, PredefinedMenuItem};
+/// The tray's right-click menu: Scripts, with the home screen's folders and scripts in the
+/// same order (one click runs one), then Show and Quit.
+fn tray_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::Wry>> {
+    use tauri::image::Image;
+    use tauri::menu::{IconMenuItem, PredefinedMenuItem, Submenu};
+    let folder_icon = || Image::new(include_bytes!("../icons/tray/folder.rgba"), 32, 32);
+    let script_icon = || Image::new(include_bytes!("../icons/tray/script.rgba"), 32, 32);
+    // "&" marks a keyboard accelerator in Windows menus; double it to show one.
+    let label = |s: &str| s.replace('&', "&&");
+    let script_item = |s: &TrayScript| IconMenuItem::with_id(app, format!("run:{}", s.id), label(&s.name), true, Some(script_icon()), None::<&str>);
     let menu = Menu::new(app)?;
-    if !favourites.is_empty() {
-        menu.append(&MenuItem::with_id(app, "fav-head", "Run a favourite", false, None::<&str>)?)?;
-        for f in favourites.iter().take(15) {
-            // "&" marks a keyboard accelerator in Windows menus; double it to show one.
-            let item = MenuItem::with_id(app, format!("run:{}", f.id), f.name.replace('&', "&&"), true, None::<&str>)?;
-            menu.append(&item as &dyn IsMenuItem<tauri::Wry>)?;
+    if !items.is_empty() {
+        let scripts = Submenu::with_id(app, "scripts", "Scripts", true)?;
+        for it in items.iter().take(60) {
+            match it {
+                TrayItem::Script(s) => scripts.append(&script_item(s)?)?,
+                TrayItem::Folder { name, scripts: inner } => {
+                    let sub = Submenu::new(app, label(name), true)?;
+                    let _ = sub.set_icon(Some(folder_icon()));
+                    for s in inner.iter().take(60) {
+                        sub.append(&script_item(s)?)?;
+                    }
+                    scripts.append(&sub)?;
+                }
+            }
         }
+        menu.append(&scripts)?;
         menu.append(&PredefinedMenuItem::separator(app)?)?;
     }
     menu.append(&MenuItem::with_id(app, "show", "Show", true, None::<&str>)?)?;
@@ -64,25 +80,33 @@ fn tray_menu(app: &AppHandle, favourites: &[TrayScript]) -> tauri::Result<Menu<t
     Ok(menu)
 }
 
-#[derive(serde::Deserialize, PartialEq, Clone)]
+#[derive(serde::Deserialize, Clone)]
 struct TrayScript {
     id: String,
     name: String,
 }
 
-/// A favourite run from the tray that needs input: bring the window forward.
+#[derive(serde::Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum TrayItem {
+    Script(TrayScript),
+    Folder { name: String, scripts: Vec<TrayScript> },
+}
+
+/// The window keeps the tray's Scripts menu in step with the home screen.
+#[tauri::command]
+fn set_tray_scripts(app: AppHandle, items: Vec<TrayItem>) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("tray"), tray_menu(&app, &items)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+/// A script run from the tray that needs input: bring the window forward.
 #[tauri::command]
 fn show_window(app: AppHandle) {
     show_main(&app);
 }
 
-/// The window keeps the tray's favourites in step with the home screen.
-#[tauri::command]
-fn set_tray_favourites(app: AppHandle, favourites: Vec<TrayScript>) {
-    if let (Some(tray), Ok(menu)) = (app.tray_by_id("tray"), tray_menu(&app, &favourites)) {
-        let _ = tray.set_menu(Some(menu));
-    }
-}
 
 /// Where the window waits: starting, ready, or failed (with why and the engine's last words).
 #[tauri::command]
@@ -401,7 +425,7 @@ pub fn run() {
             apply_update,
             ui_ready,
             dismiss_whats_new,
-            set_tray_favourites,
+            set_tray_scripts,
             show_window
         ])
         .setup(move |app| {
@@ -430,7 +454,7 @@ pub fn run() {
                     "show" => show_main(app),
                     "quit" => quit(app),
                     id => {
-                        // A favourite: the window runs it (and comes forward only if it needs input).
+                        // A script: the window runs it (and comes forward only if it needs input).
                         if let Some(script) = id.strip_prefix("run:") {
                             let _ = app.emit("tray-run", script.to_string());
                         }

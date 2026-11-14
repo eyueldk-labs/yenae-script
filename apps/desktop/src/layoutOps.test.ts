@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Layout } from "./api";
-import { folderWith, moveFavourite, moveFolder, moveScript, moveToFolder, renameFolder, toggleFavourite, ungroup, foldersOf, toggleInFolder } from "./layoutOps";
+import { folderWith, moveFolder, moveScript, moveToFolder, renameFolder, ungroup, foldersOf, toggleInFolder } from "./layoutOps";
 
 const base: Layout = {
   favourites: [],
@@ -15,7 +15,7 @@ const shape = (l: Layout) => l.items.map((i) => (i.type === "script" ? i.id : `$
 
 test("dropping a script onto another makes a folder in its place", () => {
   const { layout, created } = moveScript(base, "e", { kind: "into", ref: "a" });
-  expect(shape(layout)).toEqual(["New folder[a,e]", "b", "Tools[c,d]"]);
+  expect(shape(layout)).toEqual(["New group[a,e]", "b", "Tools[c,d]"]);
   expect(layout.items[0]!.id).toBe(created!);
 });
 
@@ -36,14 +36,6 @@ test("folders: make, rename, move, ungroup", () => {
   expect(shape(renameFolder(layout, created, "  Ours "))).toEqual(["a", "Ours[b]", "Tools[c,d]", "e"]);
   expect(shape(moveFolder(base, "f", "before", "a"))).toEqual(["Tools[c,d]", "a", "b", "e"]);
   expect(shape(ungroup(base, "f"))).toEqual(["a", "b", "c", "d", "e"]);
-});
-
-test("favourites toggle and reorder", () => {
-  let l = toggleFavourite(toggleFavourite(base, "a"), "c");
-  expect(l.favourites).toEqual(["a", "c"]);
-  l = moveFavourite(l, "c", "a");
-  expect(l.favourites).toEqual(["c", "a"]);
-  expect(toggleFavourite(l, "c").favourites).toEqual(["a"]);
 });
 
 test("a script can be added to a second folder and taken out of one", () => {
