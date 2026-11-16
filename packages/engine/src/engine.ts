@@ -371,7 +371,7 @@ Keep it minimal: do exactly what was asked, plus only what the task clearly can'
 People want to run it right away, without setting anything up. Only add a form field for something that truly differs from run to run (like which folder), and give every field a sensible default so Run works straight away. Pick good values yourself instead of asking for them.
 ${isNew ? "" : "Don't add new form fields or features unless the change asks for them.\n"}Give it a clear name, a one-line description in plain words, an icon, and plain labels on its fields (with units, like "Older than (days)").
 When it's written, if you have the yenae-script MCP tools (run_script, get_run), use them to run it once and check it works; fix it if not. If it needs an npm package, add it with \`bun add\` in the script's package folder.
-The person using this app may not be technical. Finish with one or two plain sentences saying what the script does now.
+You are running in the background and nobody can approve requests, so use only the tools you already have: reading and editing files, bun, and the yenae-script tools. The person using this app may not be technical. Finish with one or two plain sentences saying what the script does now.
 `;
     const { agent, argv, stdin } = agentCommand(harness, this.settings.workspace, prompt);
     const run = this.runs.startAgent(scriptId, agent, argv, this.settings.workspace, stdin, instructions.trim() || "Improve this script.");

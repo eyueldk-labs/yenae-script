@@ -21,3 +21,14 @@ test("Claude's edits and command output show in the run", () => {
     "sys:Using whatever tool",
   ]);
 });
+
+test("tools Claude wasn't allowed to use are said in words", () => {
+  const ev = claude.parse(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "Done.", permission_denials: [{ tool_name: "mcp__chrome-devtools__new_page" }] }), {});
+  expect(ev.map((e: any) => e.text ?? e.item?.markdown)).toEqual(["Done.", "Not allowed here: new page"]);
+});
+
+test("the agents only load the app's own MCP server", () => {
+  const ctx = { workspace: "/w", mcpConfig: "/w/.mcp.json" };
+  expect(claude.args("t", ctx)).toContain("--strict-mcp-config");
+  expect(AGENTS.find((a) => a.id === "gemini")!.args("t", ctx).join(" ")).toContain("--allowed-mcp-server-names yenae-script");
+});

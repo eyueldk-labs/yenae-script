@@ -124,6 +124,9 @@ function parseClaude(line: string, st: ParseState): RunEvent[] {
     const text = String(d.result ?? "").trim();
     st.result = { ok: !d.is_error && d.subtype === "success", text };
     if (text && text !== st.lastText) out.push(said(text));
+    // Tools it wasn't allowed to use, in words: nobody can approve them in the background.
+    const denied = [...new Set((d.permission_denials ?? []).map((x: any) => String(x?.tool_name ?? "").replace(/^mcp__[^_]+(?:-[^_]+)*__/, "").replace(/_/g, " ")).filter(Boolean))];
+    if (denied.length) out.push(step(`Not allowed here: ${denied.join(", ")}`));
   }
   return out;
 }
@@ -231,9 +234,11 @@ export const AGENTS: Agent[] = [
       "acceptEdits",
       "--allowedTools",
       "Read,Write,Edit,MultiEdit,Glob,Grep,Bash(bun:*),Bash(bunx:*),mcp__yenae-script",
-      // The app's own tools, so it can run the script it wrote and check the result.
+      // Only the app's own tools (to run the script it wrote and check the result): the
+      // person's other MCP servers would ask for permission nobody is there to give.
       "--mcp-config",
       mcpConfig,
+      "--strict-mcp-config",
     ],
     parse: parseClaude,
   },
@@ -252,7 +257,8 @@ export const AGENTS: Agent[] = [
     short: "Gemini",
     bin: "gemini",
     // --skip-trust: otherwise an untrusted folder silently turns auto-edit back off.
-    args: (task) => ["-p", task, "--approval-mode", "auto_edit", "--output-format", "stream-json", "--skip-trust"],
+    // Only the app's MCP server, for the same reason as Claude's --strict-mcp-config.
+    args: (task) => ["-p", task, "--approval-mode", "auto_edit", "--output-format", "stream-json", "--skip-trust", "--allowed-mcp-server-names", "yenae-script"],
     parse: parseGemini,
   },
   {
