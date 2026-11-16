@@ -58,6 +58,8 @@ export function serve(engine: Engine) {
       }
 
       if (url.pathname === "/mcp") {
+        // An agent's question to the person can wait for a long time.
+        server.timeout(req, 0);
         if (req.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
         const out = await handleMcp(engine, await req.json().catch(() => null));
         if (out === null) return new Response(null, { status: 202 });
@@ -95,6 +97,8 @@ export function serve(engine: Engine) {
           case "/api/run/answer":
             engine.runs.answer(body.run, body.id, body.value);
             return json(req, { ok: true });
+          case "/api/presets":
+            return json(req, { presets: engine.setPresets(body.script, body.presets) });
           case "/api/startup":
             engine.setStartup(body.script, !!body.on, body.params ?? {});
             return json(req, { ok: true });

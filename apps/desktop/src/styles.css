@@ -612,3 +612,17 @@ code.block { display: block; padding: 6px 8px; background: var(--code); border-r
 .startup-check { align-items: flex-start; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); width: 100%; }
 .startup-check input { margin-top: 2px; }
 .block { display: block; }
+
+/* A secret field: the eye sits inside the box, at its end. */
+.secret-field { position: relative; display: flex; }
+.secret-field input { flex: 1; min-width: 0; padding-right: 40px; }
+.secret-field .ib { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); }
+
+/* "Claude is changing this script. Watch" on the Run tab. */
+.agent-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+#panel-changes > .run-output + .back-link, #panel-changes > .run-output + .hist { margin-top: 18px; }
+
+/* Presets: a picker and Save/Remove above the form. */
+.preset-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+.preset-bar select { flex: 0 1 220px; min-width: 0; }
+.preset-bar input { flex: 1 1 180px; min-width: 0; }

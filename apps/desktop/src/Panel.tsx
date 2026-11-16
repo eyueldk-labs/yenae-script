@@ -6,12 +6,13 @@ import { ParamForm, defaults, fieldId, fmtValue, labelOf, missing, splitUnit, st
 import { RunOutput, friendlyError, plainError } from "./Output";
 import { modalOpen, preferredHarness } from "./Dialogs";
 import { SchedulePanel } from "./Schedule";
+import { PresetBar } from "./Presets";
 import { Menu, type MenuEntry } from "./Menu";
 import { Glyph, hueOf } from "./icons";
 import { MOD, SOURCE, STATUS, agentOf, fmtAgo, fmtDur, fmtParams, isLive, lastLabel } from "./fmt";
 import { store } from "./store";
 
-export type Tab = "run" | "history" | "schedule";
+export type Tab = "run" | "history" | "schedule" | "changes";
 export type Opening = { run?: string; tab?: Tab; focus?: boolean; key: number };
 type Msg = { text: string; tone: "bad" | "note"; undo?: () => void };
 
@@ -69,7 +70,12 @@ export function Panel({
     const l = state.lastRuns[script.id];
     return opening.run ?? (l?.status === "failed" ? l.id : null);
   });
-  const [tab, setTab] = useState<Tab>(opening.tab ?? "run");
+  // An agent at work on the script: open on its Changes, where it can be watched.
+  const [tab, setTab] = useState<Tab>(
+    () => opening.tab ?? (Object.values(runs).some((r) => r.script === script.id && r.source === "agent" && isLive(r)) ? "changes" : "run"),
+  );
+  // A past change opened from Changes.
+  const [changeRun, setChangeRun] = useState<string | null>(null);
   // A run opened from History shows there, with a way back to the list.
   const [histRun, setHistRun] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg | null>(null);
@@ -80,8 +86,9 @@ export function Panel({
   useEffect(() => store.set(`values:${script.id}`, values), [script.id, values]);
 
   useEffect(() => {
-    if (opening.run) setShownRun(opening.run);
-    if (opening.tab || opening.run) setTab(opening.tab ?? "run");
+    const agentRun = !!opening.run && runs[opening.run]?.source === "agent";
+    if (opening.run && !agentRun) setShownRun(opening.run);
+    if (opening.tab || opening.run) setTab(opening.tab ?? (agentRun ? "changes" : "run"));
     if (!opening.focus) return;
     requestAnimationFrame(() => {
       const first = root.current?.querySelector<HTMLElement>(".run-form input, .run-form select, .run-form textarea");
@@ -94,14 +101,27 @@ export function Panel({
     loadHistory();
   }, [loadHistory]);
 
-  const live = Object.values(runs)
-    .filter((r) => r.script === script.id && isLive(r))
-    .sort((a, b) => b.startedAt - a.startedAt)[0];
-  const runId = live?.id ?? shownRun;
+  const liveOf = (agent: boolean) =>
+    Object.values(runs)
+      .filter((r) => r.script === script.id && isLive(r) && (r.source === "agent") === agent)
+      .sort((a, b) => b.startedAt - a.startedAt)[0];
+  // Runs of the script, and an agent changing it, are kept apart: Run vs Changes.
+  const live = liveOf(false);
+  const liveAgent = liveOf(true);
+  const runId = live?.id ?? (shownRun && runs[shownRun]?.source !== "agent" ? shownRun : null);
   const run = runId ? runs[runId] : null;
   const last = state.lastRuns[script.id] ? (runs[state.lastRuns[script.id]!.id] ?? state.lastRuns[script.id]!) : null;
 
   // When a run ends: refresh history and, if focus fell off the page, put it on Run.
+  // When a change finishes while it's being watched, its result stays in view.
+  const wasAgent = useRef(liveAgent?.id);
+  useEffect(() => {
+    if (!liveAgent) {
+      loadHistory();
+      if (wasAgent.current) setChangeRun(wasAgent.current);
+    }
+    wasAgent.current = liveAgent?.id;
+  }, [liveAgent?.id]);
   const liveId = live?.id;
   const wasLive = useRef(liveId);
   useEffect(() => {
@@ -119,7 +139,7 @@ export function Panel({
 
   // Load a finished run's output when it's shown but not in memory.
   useEffect(() => {
-    for (const id of [runId, histRun]) {
+    for (const id of [runId, histRun, changeRun]) {
       if (id && (!runs[id] || (runs[id]!.events.length === 0 && !isLive(runs[id]!)))) {
         api
           .getRun(id)
@@ -127,7 +147,7 @@ export function Panel({
           .catch(() => {});
       }
     }
-  }, [runId, histRun]);
+  }, [runId, histRun, changeRun]);
 
   const start = async (params = values) => {
     const miss = missing(script.params, params);
@@ -210,7 +230,10 @@ export function Panel({
     { label: "Delete…", onSelect: onDelete },
   ];
 
-  const isOld = (r: RunDetail) => !isLive(r) && r.source !== "agent" && params.length > 0 && JSON.stringify(r.params) !== JSON.stringify(Object.fromEntries(params.map(([k]) => [k, values[k]])));
+  const runsOnly = history.filter((h) => h.source !== "agent");
+  const changes = history.filter((h) => h.source === "agent" && h.id !== liveAgent?.id);
+  const plain = params.filter(([, p]) => !p.secret);
+  const isOld = (r: RunDetail) => !isLive(r) && r.source !== "agent" && plain.length > 0 && JSON.stringify(plain.map(([k]) => r.params[k])) !== JSON.stringify(plain.map(([k]) => values[k]));
 
   // A failure always shows first, right under the tabs and above the form.
   const failFirst = !!run && !live && run.status === "failed";
@@ -247,7 +270,7 @@ export function Panel({
                           <button
                             onClick={() => {
                               const before = values;
-                              setValues({ ...values, ...run.params });
+                              setValues({ ...values, ...Object.fromEntries(Object.entries(run.params).filter(([k]) => !script.params[k]?.secret)) });
                               setMsg({ text: "Filled the form with this run's values.", tone: "note", undo: () => setValues(before) });
                               if (back) setTab("run");
                             }}
@@ -358,6 +381,7 @@ export function Panel({
             ["run", "Run", ""],
             ["history", "History", ""],
             ["schedule", "Schedule", ""],
+            ["changes", "Changes", ""],
           ] as const
         ).map(([id, label, extra]) => (
           <button
@@ -371,12 +395,13 @@ export function Panel({
             onClick={() => {
               setTab(id);
               if (id === "history") setHistRun(null);
+              if (id === "changes") setChangeRun(null);
             }}
             onKeyDown={(e) => {
-              const order: Tab[] = ["run", "history", "schedule"];
+              const order: Tab[] = ["run", "history", "schedule", "changes"];
               const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
               if (!d) return;
-              const next = order[(order.indexOf(id) + d + 3) % 3]!;
+              const next = order[(order.indexOf(id) + d + order.length) % order.length]!;
               setTab(next);
               document.getElementById(`tab-${next}`)?.focus();
             }}
@@ -384,6 +409,7 @@ export function Panel({
             {label}
             {extra && <span className="count">{extra}</span>}
             {id === "schedule" && scheduleOn && <span className="count on">On</span>}
+            {id === "changes" && liveAgent && <span className="count on">{liveAgent.status === "waiting" ? "Needs you" : "Working"}</span>}
           </button>
         ))}
       </div>
@@ -410,12 +436,20 @@ export function Panel({
               </div>
             )}
 
+            {liveAgent && !live && (
+              <p className="muted small agent-note">
+                <span className={`dot ${liveAgent.status}`} aria-hidden /> {agentOf(liveAgent)} is changing this script.{" "}
+                <button className="link" onClick={() => setTab("changes")}>
+                  {liveAgent.status === "waiting" ? "It has a question" : "Watch"}
+                </button>
+              </p>
+            )}
             {live ? (
               <div className="live-bar">
                 <span className={`dot ${live.status}`} aria-hidden />
                 <div className="grow">
                   <div className="live-status" role="status">
-                    {live.source === "agent" ? `${agentOf(live)} is working on this script` : STATUS[live.status]}
+                    {STATUS[live.status]}
                   </div>
                   <div className="muted small">
                     Started {fmtAgo(live.startedAt)}
@@ -435,6 +469,9 @@ export function Panel({
                       Reset
                     </button>
                   </p>
+                )}
+                {params.length > 0 && (
+                  <PresetBar api={api} script={script.id} presets={state.presets[script.id] ?? []} values={values} onPick={setValues} />
                 )}
                 {params.length > 0 ? (
                   <div className="run-form">
@@ -502,8 +539,8 @@ export function Panel({
                 {runs[histRun] ? result(runs[histRun]!, () => setHistRun(null)) : <p className="muted small">Loading…</p>}
               </>
             )}
-            {!histRun && history.length === 0 && <p className="muted small">No runs yet.</p>}
-            {!histRun && groupByDay(history.map((h) => runs[h.id] ?? h)).map(([day, rows]) => (
+            {!histRun && runsOnly.length === 0 && <p className="muted small">No runs yet.</p>}
+            {!histRun && groupByDay(runsOnly.map((h) => runs[h.id] ?? h)).map(([day, rows]) => (
               <section key={day} className="hist-day">
                 <h3>{day}</h3>
                 <ul className="hist">
@@ -546,6 +583,64 @@ export function Panel({
           </div>
         )}
 
+        {tab === "changes" && (
+          <div role="tabpanel" id="panel-changes" aria-labelledby="tab-changes">
+            {liveAgent && (
+              <section className="run-output" aria-label="Change in progress">
+                <div className="live-bar">
+                  <span className={`dot ${liveAgent.status}`} aria-hidden />
+                  <div className="grow">
+                    <div className="live-status" role="status">
+                      {liveAgent.status === "waiting" ? `${agentOf(liveAgent)} has a question` : `${agentOf(liveAgent)} is changing this script`}
+                    </div>
+                    <div className="muted small">
+                      {String(liveAgent.params.task ?? "")} · started {fmtAgo(liveAgent.startedAt)}
+                    </div>
+                  </div>
+                  <button className="stop small-btn" onClick={() => api.stop(liveAgent.id).catch((e) => setMsg({ text: e.message, tone: "bad" }))}>
+                    Stop
+                  </button>
+                </div>
+                <RunOutput run={liveAgent} onAnswer={(id, v) => api.answer(liveAgent.id, id, v).catch((e) => setMsg({ text: e.message, tone: "bad" }))} />
+              </section>
+            )}
+            {changeRun ? (
+              <>
+                <button className="ib back-link hist-back" onClick={() => setChangeRun(null)}>
+                  <ChevronLeft size={18} aria-hidden />
+                  All changes
+                </button>
+                {runs[changeRun] ? result(runs[changeRun]!, () => setChangeRun(null)) : <p className="muted small">Loading…</p>}
+              </>
+            ) : (
+              <>
+                {!liveAgent && changes.length === 0 && (
+                  <p className="muted small">{agent ? "No changes yet. Describe one in the box below." : "No changes yet."}</p>
+                )}
+                {changes.length > 0 && (
+                  <ul className="hist">
+                    {changes.map((h) => (
+                      <li key={h.id}>
+                        <button className="hist-row" onClick={() => setChangeRun(h.id)}>
+                          <span className={`dot ${h.status}`} aria-hidden />
+                          <span className="hist-main">
+                            <span className="hist-line">
+                              <span className="hist-status">{runLabel(h)}</span>
+                              <span className="hist-meta">{fmtAgo(h.startedAt)}</span>
+                            </span>
+                            <span className="hist-params">{String(h.params.task ?? "")}</span>
+                          </span>
+                          <ChevronRight size={16} className="hist-chev" aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {tab === "schedule" && (
           <SchedulePanel
             key={`${schedule?.enabled}:${schedule?.every}:${JSON.stringify(schedule?.params)}`}
@@ -569,7 +664,7 @@ export function Panel({
       </div>
 
       {/* Change it by saying what should be different: the quickest way to tweak a script. */}
-      {agent && !live && (
+      {agent && !liveAgent && (
         <form
           className="ask-bar"
           onSubmit={async (e) => {
@@ -580,8 +675,8 @@ export function Panel({
             try {
               await api.editWith(script.id, agent.id, what);
               setChange("");
-              setShownRun(null);
-              setTab("run");
+              setChangeRun(null);
+              setTab("changes");
             } catch (err: any) {
               setMsg({ text: err.message, tone: "bad" });
             } finally {

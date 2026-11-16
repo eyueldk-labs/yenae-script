@@ -3,6 +3,7 @@ import { BUN, RUNNER } from "./paths";
 import type { RunEvent, RunSource, RunSummary, Store } from "./db";
 import type { ScriptInfo, Project } from "./scan";
 import type { ToEngine } from "./protocol";
+import type { AskRequest } from "yenae-script";
 import { ensureInstalled } from "./install";
 import { flushText, type Agent, type ParseState } from "./agents";
 
@@ -18,6 +19,9 @@ export type RunListener = (
 
 const MAX_EVENTS = 5000;
 const MAX_TEXT = 2_000_000;
+
+/** What a secret value is kept as in run history. */
+export const SECRET = "••••••";
 
 export class Runs {
   live = new Map<string, LiveRun & { proc?: Subprocess; textSize: number; stopping?: boolean }>();
@@ -53,8 +57,7 @@ export class Runs {
    * A coding agent writing or changing a script, shown like a run of it: its steps and
    * messages stream as the run's output, Stop ends it, and it lands in the script's history.
    */
-  startAgent(scriptId: string, agent: Agent, argv: string[], cwd: string, stdin: string | undefined, task: string): LiveRun {
-    const id = crypto.randomUUID();
+  startAgent(scriptId: string, agent: Agent, argv: string[], cwd: string, stdin: string | undefined, task: string, id: string = crypto.randomUUID()): LiveRun {
     const run: LiveRun & { textSize: number; proc?: Subprocess; stopping?: boolean } = {
       id,
       script: scriptId,
@@ -140,10 +143,12 @@ export class Runs {
 
   start(script: ScriptInfo, project: Project, params: Record<string, unknown>, source: RunSource): LiveRun {
     const id = crypto.randomUUID();
+    // Secret values (passwords, keys) go to the script but are never kept in its history.
+    const kept = Object.fromEntries(Object.entries(params).map(([k, v]) => [k, (script.params as any)?.[k]?.secret && v !== "" && v != null ? SECRET : v]));
     const run: LiveRun & { textSize: number } = {
       id,
       script: script.id,
-      params,
+      params: kept,
       source,
       status: "running",
       exitCode: null,
@@ -157,7 +162,7 @@ export class Runs {
     this.live.set(id, run);
     this.store.insertRun(run);
     this.emit({ type: "run", run: this.summary(run) });
-    this.launch(run, script, project).catch((e) => this.finish(run, null, e.message ?? String(e)));
+    this.launch(run, script, project, params).catch((e) => this.finish(run, null, e.message ?? String(e)));
     return run;
   }
 
@@ -179,7 +184,7 @@ export class Runs {
     this.emit({ type: "event", runId: run.id, event });
   }
 
-  private async launch(run: LiveRun & { textSize: number; proc?: Subprocess; stopping?: boolean }, script: ScriptInfo, project: Project) {
+  private async launch(run: LiveRun & { textSize: number; proc?: Subprocess; stopping?: boolean }, script: ScriptInfo, project: Project, params: Record<string, unknown>) {
     await ensureInstalled(project.dir, (text) => this.push(run, { t: "sys", text, at: Date.now() }));
     if (run.stopping) return this.finish(run, null, null);
 
@@ -193,7 +198,7 @@ export class Runs {
       windowsHide: true,
       env: {
         ...process.env,
-        YENAE_PARAMS: JSON.stringify(run.params),
+        YENAE_PARAMS: JSON.stringify(params),
         YENAE_RUN_ID: run.id,
         FORCE_COLOR: "0",
         NO_COLOR: "1",
@@ -239,6 +244,9 @@ export class Runs {
     run.status = run.stopping ? "stopped" : code === 0 && !run.error ? "ok" : "failed";
     run.endedAt = Date.now();
     run.pendingAsk = null;
+    // An agent still waiting on a question gets an empty answer and goes on to end.
+    this.agentAnswers.get(run.id)?.(null);
+    this.agentAnswers.delete(run.id);
     const ms = run.endedAt - run.startedAt;
     const label = run.status === "ok" ? "Done" : run.status === "stopped" ? "Stopped" : "Failed";
     // A stopped run's exit code is just the kill signal, so only failures show it.
@@ -252,10 +260,34 @@ export class Runs {
     this.finished.delete(run.id);
   }
 
+  /** Agents waiting on the person's answer to a question: run id -> resolve. */
+  private agentAnswers = new Map<string, (v: unknown) => void>();
+
+  /**
+   * An agent asking the person something (it's told not to, but just in case): shown like a
+   * script's question, and the answer goes back to the agent.
+   */
+  askFromAgent(runId: string, request: AskRequest): Promise<unknown> {
+    const run = this.live.get(runId);
+    if (!run || run.source !== "agent") throw new Error("No agent run with that id is working right now.");
+    if (run.pendingAsk) throw new Error("A question is already waiting for an answer.");
+    const id = (run.events.filter((e) => e.t === "ask").length || 0) + 1;
+    run.pendingAsk = { id, request };
+    run.status = "waiting";
+    this.push(run, { t: "ask", id, request, at: Date.now() });
+    this.emit({ type: "run", run: this.summary(run) });
+    return new Promise((resolve) => this.agentAnswers.set(runId, resolve));
+  }
+
   answer(runId: string, askId: number, value: unknown) {
     const run = this.live.get(runId);
-    if (!run?.proc || run.pendingAsk?.id !== askId) throw new Error("That question is no longer open.");
-    run.proc.send({ t: "answer", id: askId, value });
+    if (!run || run.pendingAsk?.id !== askId) throw new Error("That question is no longer open.");
+    const toAgent = this.agentAnswers.get(runId);
+    if (toAgent) {
+      this.agentAnswers.delete(runId);
+      toAgent(value);
+    } else if (run.proc) run.proc.send({ t: "answer", id: askId, value });
+    else throw new Error("That question is no longer open.");
     run.pendingAsk = null;
     run.status = "running";
     this.push(run, { t: "answer", id: askId, value, at: Date.now() });

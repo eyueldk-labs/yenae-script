@@ -153,7 +153,7 @@ export function App() {
         [...state.layout.items.filter((i) => i.type === "folder"), ...state.layout.items.filter((i) => i.type === "script")].flatMap((it): unknown[] => {
           const named = (id: string) => {
             const s = state.scripts.find((x) => x.id === id);
-            return s ? [{ id, name: s.name }] : [];
+            return s ? [{ id, name: s.name, presets: (state.presets[id] ?? []).map((p) => p.name) }] : [];
           };
           if (it.type === "script") return named(it.id).map((s) => ({ type: "script", ...s }));
           return [{ type: "folder", name: it.name, scripts: it.scripts.flatMap(named) }];
@@ -164,12 +164,12 @@ export function App() {
     if (!isTauri() || !state) return;
     import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_tray_scripts", { items: JSON.parse(trayItems) }).catch(() => {}));
   }, [trayItems]);
-  const quickRunRef = useRef<(id: string, fromTray?: boolean) => void>(() => {});
+  const quickRunRef = useRef<(id: string, fromTray?: boolean, preset?: number | null) => void>(() => {});
   useEffect(() => {
     if (!isTauri()) return;
     let off: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) =>
-      listen<string>("tray-run", (e) => quickRunRef.current(e.payload, true)).then((u) => (off = u)),
+      listen<{ script: string; preset?: number | null }>("tray-run", (e) => quickRunRef.current(e.payload.script, true, e.payload.preset)).then((u) => (off = u)),
     );
     return () => off?.();
   }, []);
@@ -257,10 +257,11 @@ export function App() {
 
   // Run from the catalog with the form's last values; a missing value opens the form instead.
   /** Runs a script with its last values; one that still needs input opens instead (from the tray: brought forward). */
-  const quickRun = async (id: string, fromTray = false) => {
+  const quickRun = async (id: string, fromTray = false, preset?: number | null) => {
     const s = state?.scripts.find((x) => x.id === id);
     if (!s || !api) return;
-    const values = { ...defaults(s.params), ...store.get<Record<string, unknown>>(`values:${id}`, {}) };
+    const saved = typeof preset === "number" ? state?.presets[id]?.[preset]?.values : undefined;
+    const values = { ...defaults(s.params), ...(saved ?? store.get<Record<string, unknown>>(`values:${id}`, {})) };
     if (s.error || missing(s.params, values).length) {
       if (fromTray) import("@tauri-apps/api/core").then(({ invoke }) => invoke("show_window").catch(() => {}));
       return open(id, { focus: true });
@@ -575,7 +576,7 @@ export function App() {
           onStarted={() => {
             const id = editing.id;
             setEditing(null);
-            open(id);
+            open(id, { tab: "changes" });
           }}
           onSaved={refresh}
         />
@@ -604,10 +605,10 @@ export function App() {
           api={api}
           state={state}
           onClose={() => setDialog(null)}
-          onCreated={async (id) => {
+          onCreated={async (id, written) => {
             setDialog(null);
             await refresh();
-            open(id);
+            open(id, written ? { tab: "changes" } : {});
           }}
         />
       )}

@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import type { ParamSpec } from "./api";
 import { PathField, lastPart } from "./PathField";
 import { store } from "./store";
@@ -24,7 +26,9 @@ export function startValues(script: { id: string; params: Record<string, ParamSp
   const typed = store.get<Record<string, unknown> | null>(`values:${script.id}`, null);
   const typedAt = store.get<number>(`valuesAt:${script.id}`, 0);
   const fromRun = !!lastRun && Object.keys(lastRun.params).length > 0 && lastRun.startedAt > typedAt;
-  return { values: { ...defaults(script.params), ...(fromRun ? lastRun!.params : (typed ?? {})) }, fromRun };
+  // A run's history keeps secrets as dots: those come from what was typed here instead.
+  const runValues = fromRun ? Object.fromEntries(Object.entries(lastRun!.params).filter(([k]) => !script.params[k]?.secret)) : {};
+  return { values: { ...defaults(script.params), ...(typed ?? {}), ...(fromRun ? runValues : {}) }, fromRun };
 }
 
 /** Keys of required params that are empty. */
@@ -188,14 +192,11 @@ function Field({
       input = spec.multiline ? (
         <textarea id={fid} {...a11y} rows={4} value={String(value ?? "")} placeholder={spec.placeholder} onChange={(e) => onChange(e.target.value)} />
       ) : (
-        <input
-          id={fid}
-          {...a11y}
-          type={spec.secret ? "password" : "text"}
-          value={String(value ?? "")}
-          placeholder={spec.placeholder}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        spec.secret ? (
+          <SecretInput id={fid} a11y={a11y} value={String(value ?? "")} placeholder={spec.placeholder} label={label} onChange={onChange} />
+        ) : (
+          <input id={fid} {...a11y} type="text" value={String(value ?? "")} placeholder={spec.placeholder} onChange={(e) => onChange(e.target.value)} />
+        )
       );
   }
 
@@ -209,6 +210,19 @@ function Field({
       </label>
       {input}
       {hint}
+    </div>
+  );
+}
+
+/** A password or key: dots until "Show" is pressed. */
+function SecretInput({ id, a11y, value, placeholder, label, onChange }: { id: string; a11y: Record<string, unknown>; value: string; placeholder?: string; label: string; onChange: (v: string) => void }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="secret-field">
+      <input id={id} {...a11y} type={shown ? "text" : "password"} autoComplete="off" spellCheck={false} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <button type="button" className="ib" aria-label={`${shown ? "Hide" : "Show"} ${label}`} title={shown ? "Hide" : "Show"} aria-pressed={shown} onClick={() => setShown(!shown)}>
+        {shown ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
+      </button>
     </div>
   );
 }

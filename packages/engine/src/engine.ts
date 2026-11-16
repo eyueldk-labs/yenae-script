@@ -19,6 +19,11 @@ export interface Settings {
   token: string;
 }
 
+export interface Preset {
+  name: string;
+  values: Record<string, unknown>;
+}
+
 export class Engine {
   store: Store;
   runs: Runs;
@@ -95,6 +100,32 @@ export class Engine {
     this.openWorkspace();
     this.scheduler.start();
     this.runAtStartup().catch(() => {});
+  }
+
+  // ---- presets: named sets of values a person saved for a script ----
+  private get presetsPath() {
+    return join(this.dataDir, "presets.json");
+  }
+  presets(): Record<string, Preset[]> {
+    try {
+      return JSON.parse(readFileSync(this.presetsPath, "utf8"));
+    } catch {
+      return {};
+    }
+  }
+  /** Replaces a script's presets (names trimmed, kept unique, empty ones dropped). */
+  setPresets(script: string, list: Preset[]) {
+    if (list?.length) this.script(script);
+    const all = this.presets();
+    const seen = new Set<string>();
+    const clean = (Array.isArray(list) ? list : [])
+      .map((p) => ({ name: String(p?.name ?? "").trim().slice(0, 60), values: p?.values && typeof p.values === "object" ? p.values : {} }))
+      .filter((p) => p.name && !seen.has(p.name.toLowerCase()) && seen.add(p.name.toLowerCase()));
+    if (clean.length) all[script] = clean;
+    else delete all[script];
+    writeFileSync(this.presetsPath, JSON.stringify(all, null, 2));
+    for (const l of this.changeListeners) l();
+    return clean;
   }
 
   // ---- run when the computer starts ----
@@ -235,6 +266,7 @@ export class Engine {
       live: [...this.runs.live.keys()].map((id) => this.runs.get(id)),
       harnesses: detectAgents(),
       startup: this.startupScripts(),
+      presets: this.presets(),
       platform: process.platform,
     };
   }
@@ -292,12 +324,14 @@ export class Engine {
     if (schedule?.enabled) this.scheduler.set(scriptId, schedule.every, schedule.params, false);
     const startup = this.readStartup().scripts[scriptId] ?? null;
     if (startup) this.setStartup(scriptId, false);
+    const presets = this.presets()[scriptId] ?? [];
+    if (presets.length) this.setPresets(scriptId, []);
     const trashId = String(Date.now());
     const dir = join(this.trashDir, trashId);
     const dest = join(dir, "files", scriptId);
     mkdirSync(dirname(dest), { recursive: true });
     renameSync(insideWorkspace(this.settings.workspace, scriptId), dest);
-    writeFileSync(join(dir, "meta.json"), JSON.stringify({ script: scriptId, schedule, startup, layout: this.layout() }, null, 2));
+    writeFileSync(join(dir, "meta.json"), JSON.stringify({ script: scriptId, schedule, startup, presets, layout: this.layout() }, null, 2));
     await this.rescan();
     return trashId;
   }
@@ -306,7 +340,7 @@ export class Engine {
   async restoreScript(trashId: string) {
     if (!/^\d+$/.test(trashId)) throw new Error("Nothing to restore.");
     const dir = join(this.trashDir, trashId);
-    const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as { script: string; schedule: ScheduleRow | null; startup?: Record<string, unknown> | null; layout: Layout };
+    const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as { script: string; schedule: ScheduleRow | null; startup?: Record<string, unknown> | null; presets?: Preset[]; layout: Layout };
     const target = insideWorkspace(this.settings.workspace, meta.script);
     if (existsSync(target)) throw new Error("A script with that name exists again, so it can't be put back.");
     mkdirSync(dirname(target), { recursive: true });
@@ -315,6 +349,7 @@ export class Engine {
     await this.rescan();
     if (meta.schedule?.enabled) this.scheduler.set(meta.script, meta.schedule.every, meta.schedule.params, true);
     if (meta.startup) this.setStartup(meta.script, true, meta.startup);
+    if (meta.presets?.length) this.setPresets(meta.script, meta.presets);
     this.saveLayout(meta.layout);
     return meta.script;
   }
@@ -360,6 +395,7 @@ export class Engine {
    */
   editWith(scriptId: string, harness: string, instructions: string, isNew = false) {
     const file = scriptId;
+    const runId = crypto.randomUUID();
     const prompt = `You are working in a Yenae Script workspace (a folder of small TypeScript scripts). Read AGENTS.md first: it explains defineScript, the form fields, ask and show.
 
 Task: ${instructions.trim() || "Improve this script."}
@@ -371,10 +407,12 @@ Keep it minimal: do exactly what was asked, plus only what the task clearly can'
 People want to run it right away, without setting anything up. Only add a form field for something that truly differs from run to run (like which folder), and give every field a sensible default so Run works straight away. Pick good values yourself instead of asking for them.
 ${isNew ? "" : "Don't add new form fields or features unless the change asks for them.\n"}Give it a clear name, a one-line description in plain words, an icon, and plain labels on its fields (with units, like "Older than (days)").
 When it's written, if you have the yenae-script MCP tools (run_script, get_run), use them to run it once and check it works; fix it if not. If it needs an npm package, add it with \`bun add\` in the script's package folder.
-You are running in the background and nobody can approve requests, so use only the tools you already have: reading and editing files, bun, and the yenae-script tools. The person using this app may not be technical. Finish with one or two plain sentences saying what the script does now.
+You are running in the background and nobody can approve requests, so use only the tools you already have: reading and editing files, bun, and the yenae-script tools.
+Don't ask the person questions: make sensible choices yourself and mention them at the end. Only if you truly can't go on without them, ask with the yenae-script ask_person tool (run_id "${runId}"); it waits for their answer.
+The person using this app may not be technical. Finish with one or two plain sentences saying what the script does now.
 `;
     const { agent, argv, stdin } = agentCommand(harness, this.settings.workspace, prompt);
-    const run = this.runs.startAgent(scriptId, agent, argv, this.settings.workspace, stdin, instructions.trim() || "Improve this script.");
+    const run = this.runs.startAgent(scriptId, agent, argv, this.settings.workspace, stdin, instructions.trim() || "Improve this script.", runId);
     // The agent changed files: pick them up when it's done.
     this.runs.whenDone(run.id).then(() => this.rescan());
     return run.id;

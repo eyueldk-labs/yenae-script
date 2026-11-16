@@ -55,18 +55,30 @@ fn tray_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::W
     let script_icon = || Image::new(include_bytes!("../icons/tray/script.rgba"), 32, 32);
     // "&" marks a keyboard accelerator in Windows menus; double it to show one.
     let label = |s: &str| s.replace('&', "&&");
-    let script_item = |s: &TrayScript| IconMenuItem::with_id(app, format!("run:{}", s.id), label(&s.name), true, Some(script_icon()), None::<&str>);
+    // A script with presets opens a small menu: its last values, then each preset.
+    let script_entry = |s: &TrayScript| -> tauri::Result<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> {
+        if s.presets.is_empty() {
+            return Ok(Box::new(IconMenuItem::with_id(app, format!("run:{}", s.id), label(&s.name), true, Some(script_icon()), None::<&str>)?));
+        }
+        let sub = Submenu::new(app, label(&s.name), true)?;
+        let _ = sub.set_icon(Some(script_icon()));
+        sub.append(&MenuItem::with_id(app, format!("run:{}", s.id), "Last values", true, None::<&str>)?)?;
+        for (i, p) in s.presets.iter().enumerate().take(20) {
+            sub.append(&MenuItem::with_id(app, format!("preset:{i}:{}", s.id), label(p), true, None::<&str>)?)?;
+        }
+        Ok(Box::new(sub))
+    };
     let menu = Menu::new(app)?;
     if !items.is_empty() {
         let scripts = Submenu::with_id(app, "scripts", "Scripts", true)?;
         for it in items.iter().take(60) {
             match it {
-                TrayItem::Script(s) => scripts.append(&script_item(s)?)?,
+                TrayItem::Script(s) => scripts.append(script_entry(s)?.as_ref())?,
                 TrayItem::Folder { name, scripts: inner } => {
                     let sub = Submenu::new(app, label(name), true)?;
                     let _ = sub.set_icon(Some(folder_icon()));
                     for s in inner.iter().take(60) {
-                        sub.append(&script_item(s)?)?;
+                        sub.append(script_entry(s)?.as_ref())?;
                     }
                     scripts.append(&sub)?;
                 }
@@ -84,6 +96,8 @@ fn tray_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::W
 struct TrayScript {
     id: String,
     name: String,
+    #[serde(default)]
+    presets: Vec<String>,
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -456,7 +470,9 @@ pub fn run() {
                     id => {
                         // A script: the window runs it (and comes forward only if it needs input).
                         if let Some(script) = id.strip_prefix("run:") {
-                            let _ = app.emit("tray-run", script.to_string());
+                            let _ = app.emit("tray-run", serde_json::json!({ "script": script }));
+                        } else if let Some((i, script)) = id.strip_prefix("preset:").and_then(|r| r.split_once(':')) {
+                            let _ = app.emit("tray-run", serde_json::json!({ "script": script, "preset": i.parse::<usize>().ok() }));
                         }
                     }
                 })

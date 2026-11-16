@@ -143,6 +143,7 @@ const desktopEntry = (c: Conn) => ({
   env: { YENAE_MCP_URL: c.url, YENAE_MCP_TOKEN: c.token },
 });
 
+const opencodeConfig = () => join(process.env.XDG_CONFIG_HOME || join(home, ".config"), "opencode", "opencode.json");
 const codexConfig = () => join(process.env.CODEX_HOME ?? join(home, ".codex"), "config.toml");
 const codexToml = (c: Conn) => `[mcp_servers.${NAME}]\nurl = "${c.url}"\nhttp_headers = { "Authorization" = "Bearer ${c.token}" }\n`;
 
@@ -243,12 +244,42 @@ const DEFS: Def[] = [
     name: "OpenCode",
     found: () => !!Bun.which("opencode"),
     connected: () => {
-      const cfg = readJson(join(home, ".config", "opencode", "opencode.json"));
+      const cfg = readJson(opencodeConfig());
       return !!(cfg?.mcp?.servers?.[NAME] ?? cfg?.mcp?.[NAME]);
+    },
+    file: opencodeConfig,
+    connect: (c) => {
+      const cfg = readJson(opencodeConfig()) ?? {};
+      cfg.mcp ??= {};
+      cfg.mcp.servers ??= {};
+      cfg.mcp.servers[NAME] = { type: "remote", url: c.url, oauth: false, headers: { Authorization: `Bearer ${c.token}` } };
+      writeJson(opencodeConfig(), cfg);
     },
     steps: (c) => [{ text: "In a terminal:", code: `opencode mcp add ${NAME} --global --url ${c.url} --header Authorization="Bearer ${c.token}"` }],
   },
 ];
+
+/**
+ * T3 Code runs your coding agents (Claude Code, Codex, OpenCode…) in one window, and each
+ * reads its own settings. So it's connected through the agents it runs.
+ */
+const T3_AGENTS = ["claude-code", "codex", "opencode"];
+DEFS.push({
+  id: "t3code",
+  name: "T3 Code",
+  found: () => !!Bun.which("t3") || existsSync(join(home, ".t3")),
+  connected: (c) => T3_AGENTS.some((id) => agentDef(id)?.found() && safe(() => agentDef(id)!.connected(c))),
+  connect: (c) => {
+    const ready = T3_AGENTS.map(agentDef).filter((d): d is Def => !!d && safe(d.found));
+    if (!ready.length) throw new Error("Install Claude Code, Codex or OpenCode first: T3 Code runs them.");
+    for (const d of ready) d.connect?.(c);
+  },
+  steps: () => [{ text: "T3 Code runs your Claude Code, Codex and OpenCode, and they bring Yenae Script with them. Connect those (above), then start a new thread in T3 Code." }],
+});
+
+function agentDef(id: string) {
+  return DEFS.find((d) => d.id === id);
+}
 
 export function aiClients(c: Conn): AiClient[] {
   return DEFS.map((d) => ({

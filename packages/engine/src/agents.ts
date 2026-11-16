@@ -81,6 +81,7 @@ function describeTool(name: string, input: any): string | null {
     const c = String(input?.description ?? input?.command ?? "").split("\n")[0]!.slice(0, 80);
     return c ? `Running: ${c}` : "Running a command";
   }
+  if (/ask_person|AskUserQuestion/.test(name)) return null; // the question itself shows
   if (/run_script/.test(name)) return "Trying the script";
   if (/get_run|answer_question|stop_run/.test(name)) return "Checking the result";
   if (/TodoWrite|ToolSearch|thinking/i.test(name)) return null;
@@ -239,6 +240,9 @@ export const AGENTS: Agent[] = [
       "--mcp-config",
       mcpConfig,
       "--strict-mcp-config",
+      // Its own question box can't be answered in the background; ask_person goes to the app.
+      "--disallowedTools",
+      "AskUserQuestion",
     ],
     parse: parseClaude,
   },

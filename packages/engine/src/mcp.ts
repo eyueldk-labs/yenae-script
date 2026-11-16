@@ -100,6 +100,27 @@ export function mcpTools(engine: Engine): Tool[] {
       call: async ({ name }) => ({ package: await engine.newProject(name) }),
     },
     {
+      name: "ask_person",
+      description:
+        "Only for an agent writing a script in Yenae Script, and only if it truly can't go on without the person: shows them a question in the app and waits for the answer. Prefer making a sensible choice yourself.",
+      inputSchema: obj(
+        {
+          run_id: str("The run id given in your task"),
+          question: str("One short question in plain words"),
+          options: { type: "array", items: { type: "string" }, description: "Optional: answers to pick from" },
+        },
+        ["run_id", "question"],
+      ),
+      call: async ({ run_id, question, options }) => {
+        const opts = Array.isArray(options) ? options.map(String).filter(Boolean) : [];
+        const answer = await engine.runs.askFromAgent(
+          String(run_id),
+          opts.length ? { kind: "select", message: String(question), options: opts.map((o) => ({ value: o, label: o })) } : { kind: "text", message: String(question) },
+        );
+        return { answer };
+      },
+    },
+    {
       name: "run_script",
       description:
         "Run a script and wait for it (up to wait_seconds). Returns status, output and results. If the script asks a question, returns it; reply with answer_question.",

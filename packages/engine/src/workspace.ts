@@ -31,7 +31,7 @@ result, so pick sensible values yourself, and only add a form field for somethin
 differs from run to run (like which folder). Every field gets a default that works.
 
 \`\`\`ts
-import { defineScript, text, number, boolean, select, file, folder, ask, show } from "yenae-script";
+import { defineScript, text, number, boolean, select, file, folder, secret, ask, show } from "yenae-script";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -58,7 +58,8 @@ export default defineScript({
 
 - Give every script a short \`name\`, a one-line \`description\` and an \`icon\`: the app shows them on its tile.
   Icons: ${ICON_LIST}.
-- Params become a form; most scripts need none or one. Kinds: \`text\`, \`number\`, \`boolean\`, \`select\`, \`file\`, \`folder\`.
+- Params become a form; most scripts need none or one. Kinds: \`text\`, \`number\`, \`boolean\`, \`select\`, \`file\`, \`folder\`,
+  and \`secret\` for passwords, API keys and tokens (hidden in the form, never kept in run history).
   Modifiers: \`.label()\`, \`.describe()\`, \`.default()\`, \`.optional()\`.
 - Ask while running: \`ask.text\`, \`ask.select\`, \`ask.confirm\`, \`ask.file\`, \`ask.folder\`.
 - Show results: \`show.text\`, \`show.markdown\`, \`show.table(rows)\`.

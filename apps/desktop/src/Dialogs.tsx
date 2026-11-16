@@ -112,7 +112,8 @@ export function NewScriptDialog({
   api: Api;
   state: State;
   onClose: () => void;
-  onCreated: (id: string) => void;
+  /** `written`: an agent is writing it (shown on the script's Changes). */
+  onCreated: (id: string, written: boolean) => void;
 }) {
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
@@ -140,8 +141,8 @@ export function NewScriptDialog({
         p = (await api.newProject(slug)).id;
       }
       if (agent) store.setHarness(agent.id);
-      const { id } = await api.newScript(p, fileName, what, agent?.id);
-      onCreated(id);
+      const { id, run } = await api.newScript(p, fileName, what, agent?.id);
+      onCreated(id, !!run);
     } catch (e: any) {
       setErr(e.message);
       setBusy(false);

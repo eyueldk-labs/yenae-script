@@ -100,6 +100,8 @@ export interface State {
   harnesses: Harness[];
   /** Scripts that run when the computer starts. */
   startup: string[];
+  /** Named sets of values saved for a script. */
+  presets: Record<string, Preset[]>;
   platform: string;
 }
 
@@ -138,6 +140,8 @@ export async function connect(): Promise<Conn> {
   } catch {}
   return { base, token };
 }
+
+export type Preset = { name: string; values: Record<string, unknown> };
 
 export type EngineStatus = { ready: boolean; failed: string | null; log: string[]; version: string; logFile: string };
 
@@ -200,6 +204,7 @@ export class Api {
   connectAi = (id: string) => this.req<import("./AiConnect").AiClient[]>("/api/ai/connect", { id });
   open = (script: string) => this.req("/api/open", { script });
   reveal = (script: string) => this.req("/api/reveal", { script });
+  savePresets = (script: string, presets: Preset[]) => this.req<{ presets: Preset[] }>("/api/presets", { script, presets });
   setStartup = (script: string, on: boolean, params: Record<string, unknown>) => this.req("/api/startup", { script, on, params });
 
   listen(onMsg: (m: ServerMsg) => void, onStatus: (up: boolean) => void) {

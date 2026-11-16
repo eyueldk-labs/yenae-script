@@ -57,6 +57,8 @@ export class Param<T> {
 
 export const text = (opts: { placeholder?: string; multiline?: boolean; secret?: boolean } = {}) =>
   new Param<string>({ kind: "text", ...opts });
+/** A password, API key or token: hidden in the form (with a button to show it) and never kept in run history. */
+export const secret = (opts: { placeholder?: string } = {}) => new Param<string>({ kind: "text", secret: true, ...opts });
 export const number = (opts: { min?: number; max?: number } = {}) =>
   new Param<number>({ kind: "number", ...opts });
 export const boolean = () => new Param<boolean>({ kind: "boolean" });

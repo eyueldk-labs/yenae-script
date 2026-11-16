@@ -190,3 +190,46 @@ test("startup scripts run once after the computer starts, not after an app resta
   engine.setStartup("p/scripts/sub/plain.ts", false);
   expect(engine.state().startup).toEqual([]);
 });
+
+test("a secret value reaches the script but is never kept in its history", async () => {
+  writeFileSync(
+    join(dir, "ws", "p/scripts/key.ts"),
+    `import { defineScript, secret } from "yenae-script";
+export default defineScript({ name: "Key", params: { key: secret() }, run({ key }) { return "got " + key.length; } });`,
+  );
+  await engine.rescan();
+  const run = engine.run("p/scripts/key.ts", { key: "hunter22" }, "manual");
+  const done = await engine.runs.whenDone(run.id);
+  expect(done.status).toBe("ok");
+  expect(JSON.stringify(engine.runs.get(run.id)!.events)).toContain("got 8");
+  expect(engine.store.getRun(run.id)!.params).toEqual({ key: "••••••" });
+  expect(JSON.stringify(engine.store.getRun(run.id))).not.toContain("hunter22");
+});
+
+test("an agent's question waits in the app, and the answer goes back to it", async () => {
+  const { AGENTS } = await import("../src/agents");
+  const claude = AGENTS.find((a) => a.id === "claude")!;
+  const run = engine.runs.startAgent("p/scripts/ask.ts", claude, [process.execPath, "-e", "await Bun.sleep(5000)"], process.cwd(), undefined, "t");
+  const answer = engine.runs.askFromAgent(run.id, { kind: "select", message: "Which drive?", options: [{ value: "D:", label: "D:" }] });
+  const live = engine.runs.get(run.id)!;
+  expect(live.status).toBe("waiting");
+  expect((live.pendingAsk as any).request.message).toBe("Which drive?");
+  engine.runs.answer(run.id, (live.pendingAsk as any).id, "D:");
+  expect(await answer).toBe("D:");
+  expect(engine.runs.get(run.id)!.status).toBe("running");
+  engine.runs.stop(run.id);
+  await engine.runs.whenDone(run.id);
+}, 30_000);
+
+test("presets are kept per script, named once each", () => {
+  const saved = engine.setPresets("p/scripts/ask.ts", [
+    { name: " Small ", values: { n: 1 } },
+    { name: "small", values: { n: 9 } },
+    { name: "", values: {} },
+    { name: "Big", values: { n: 100 } },
+  ]);
+  expect(saved.map((p) => p.name)).toEqual(["Small", "Big"]);
+  expect(engine.state().presets["p/scripts/ask.ts"]![1]!.values).toEqual({ n: 100 });
+  engine.setPresets("p/scripts/ask.ts", []);
+  expect(engine.state().presets["p/scripts/ask.ts"]).toBeUndefined();
+});
